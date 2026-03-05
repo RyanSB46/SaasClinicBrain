@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Dados confidenciais - NUNCA commitar
+.env
+.env.*
+!.env.example
+*.client_secret*.json
+client_secret*.json
+*credentials*.json
+credentials.json
+token.json

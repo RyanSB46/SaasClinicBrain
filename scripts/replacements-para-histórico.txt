@@ -1,0 +1,11 @@
+# Use com: git filter-repo --replace-text scripts/replacements-para-histórico.txt
+# Instale: pip install git-filter-repo  (ou py -m pip install git-filter-repo)
+# Depois: git push origin --force --all
+
+literal:5527981017804==>5527999990001
+literal:5527996087528==>5527999990002
+literal:5527990001111==>5527999990003
+literal:Admin@123456==>SeedDev@123
+literal:DevAdmin@123456==>SeedAdmin@123
+literal:Senha@12345==>sua_senha_segura_aqui
+literal:Senha@123456==>TestProf@123456

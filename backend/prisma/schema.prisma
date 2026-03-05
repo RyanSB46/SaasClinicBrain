@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PatientStatus {
+  ATIVO
+  INATIVO
+}
+
+enum AppointmentStatus {
+  AGENDADO
+  CONFIRMADO
+  CANCELADO
+  FALTOU
+  REMARCADO
+}
+
+enum AppointmentMode {
+  PRESENCIAL
+  REMOTO
+}
+
+enum InteractionType {
+  BOT
+  HUMANO
+  PACIENTE
+}
+
+enum GoogleSyncAction {
+  UPSERT
+  DELETE
+}
+
+enum GoogleSyncStatus {
+  PENDING
+  PROCESSING
+  RETRY
+  SUCCESS
+  FAILED
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("admins_tecnicos")
+}
+
+model Professional {
+  id                  String            @id @default(cuid())
+  name                String
+  email               String            @unique
+  passwordHash        String            @map("password_hash")
+  phoneNumber         String?           @map("phone_number")
+  professionalType    String?           @map("professional_type")
+  evolutionInstanceName String?         @unique(map: "profissionais_instance_name_key") @map("instance_name")
+  evolutionApiKey     String?           @map("evolution_api_key")
+  specialty           String?
+  consultationFeeCents Int?             @map("consultation_fee_cents")
+  timezone            String            @default("America/Sao_Paulo")
+  isActive            Boolean           @default(true) @map("is_active")
+  googleAccessTokenEnc String?          @map("google_access_token_enc")
+  googleRefreshTokenEnc String?         @map("google_refresh_token_enc")
+  googleTokenExpiresAt DateTime?        @map("google_token_expires_at") @db.Timestamptz(3)
+  googleCalendarId    String?           @map("google_calendar_id")
+  googleConnectedAt   DateTime?         @map("google_connected_at") @db.Timestamptz(3)
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  patients            Patient[]
+  appointments        Appointment[]
+  interactions        Interaction[]
+  settings            Settings?
+  whatsappSessions    WhatsappSession[]
+  availabilityBlocks  ProfessionalAvailabilityBlock[]
+  staff               ProfessionalStaff[]
+  googleEventMappings GoogleCalendarEventMapping[]
+  googleSyncJobs      GoogleCalendarSyncJob[]
+
+  @@map("profissionais")
+}
+
+model ProfessionalStaff {
+  id             String     @id @default(cuid())
+  professionalId String     @map("profissional_id")
+  name           String
+  email          String     @unique(map: "funcionarios_email_key")
+  passwordHash   String     @map("password_hash")
+  isActive       Boolean    @default(true) @map("is_active")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId], map: "funcionarios_profissional_id_idx")
+  @@map("funcionarios")
+}
+
+model ProfessionalAvailabilityBlock {
+  id             String       @id @default(cuid())
+  professionalId String       @map("profissional_id")
+  startsAt       DateTime     @map("starts_at") @db.Timestamptz(3)
+  endsAt         DateTime     @map("ends_at") @db.Timestamptz(3)
+  reason         String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId, startsAt], map: "bloqueios_agenda_profissional_id_starts_at_idx")
+  @@index([professionalId, endsAt], map: "bloqueios_agenda_profissional_id_ends_at_idx")
+  @@map("bloqueios_agenda")
+}
+
+model Patient {
+  id                 String         @id @default(cuid())
+  professionalId     String         @map("profissional_id")
+  name               String
+  phoneNumber        String         @map("phone_number")
+  email              String?
+  firstConsultationAt DateTime?     @map("first_consultation_at") @db.Timestamptz(3)
+  status             PatientStatus  @default(ATIVO)
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  professional       Professional   @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  appointments       Appointment[]
+  interactions       Interaction[]
+
+  @@unique([professionalId, phoneNumber], map: "pacientes_profissional_id_phone_number_key")
+  @@index([professionalId], map: "pacientes_profissional_id_idx")
+  @@index([professionalId, status], map: "pacientes_profissional_id_status_idx")
+  @@map("pacientes")
+}
+
+model Appointment {
+  id               String            @id @default(cuid())
+  professionalId   String            @map("profissional_id")
+  patientId        String            @map("paciente_id")
+  startsAt         DateTime          @map("starts_at") @db.Timestamptz(3)
+  endsAt           DateTime          @map("ends_at") @db.Timestamptz(3)
+  status           AppointmentStatus @default(AGENDADO)
+  mode             AppointmentMode   @default(PRESENCIAL)
+  notes            String?
+  rescheduledFromId String?          @map("remarcado_de_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  professional     Professional      @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  patient          Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  rescheduledFrom  Appointment?      @relation("reschedule_chain", fields: [rescheduledFromId], references: [id], onDelete: SetNull)
+  rescheduledTo    Appointment[]     @relation("reschedule_chain")
+  interactions     Interaction[]
+  googleEventMapping GoogleCalendarEventMapping?
+  googleSyncJobs   GoogleCalendarSyncJob[]
+
+  @@index([professionalId, startsAt], map: "agendamentos_profissional_id_starts_at_idx")
+  @@index([professionalId, status], map: "agendamentos_profissional_id_status_idx")
+  @@index([patientId, startsAt], map: "agendamentos_paciente_id_starts_at_idx")
+  @@map("agendamentos")
+}
+
+model Interaction {
+  id               String          @id @default(cuid())
+  professionalId   String          @map("profissional_id")
+  patientId        String?         @map("paciente_id")
+  appointmentId    String?         @map("agendamento_id")
+  messageText      String          @map("mensagem")
+  messageType      InteractionType @map("tipo")
+  externalMessageId String?        @map("message_id")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  professional     Professional    @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  patient          Patient?        @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  appointment      Appointment?    @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@index([professionalId, createdAt], map: "interacoes_profissional_id_created_at_idx")
+  @@index([patientId, createdAt], map: "interacoes_paciente_id_created_at_idx")
+  @@unique([professionalId, externalMessageId], map: "interacoes_profissional_id_message_id_key")
+  @@map("interacoes")
+}
+
+model Settings {
+  id                 String       @id @default(cuid())
+  professionalId     String       @unique(map: "configuracoes_profissional_id_key") @map("profissional_id")
+  welcomeMessage     String?      @map("mensagem_boas_vindas")
+  confirmationMessage String?     @map("mensagem_confirmacao")
+  cancellationPolicy String?      @map("politica_cancelamento")
+  reminderD1Enabled  Boolean      @default(true) @map("lembrete_d1_ativo")
+  reminder2hEnabled  Boolean      @default(true) @map("lembrete_2h_ativo")
+  dashboardEnabled   Boolean      @default(true) @map("feature_dashboard_ativo")
+  agendaEnabled      Boolean      @default(true) @map("feature_agenda_ativo")
+  manualActionEnabled Boolean     @default(true) @map("feature_acao_manual_agenda_ativo")
+  patientsEnabled    Boolean      @default(true) @map("feature_pacientes_ativo")
+  reportsEnabled     Boolean      @default(true) @map("feature_relatorios_ativo")
+  requestsEnabled    Boolean      @default(true) @map("feature_solicitacoes_ativo")
+  settingsEnabled    Boolean      @default(true) @map("feature_configuracoes_ativo")
+  patientPortalEnabled Boolean    @default(true) @map("feature_portal_paciente_ativo")
+  webhookEnabled     Boolean      @default(true) @map("feature_webhook_ativo")
+  googleCalendarEnabled Boolean   @default(false) @map("feature_google_calendar_ativo")
+  googleMeetEnabled  Boolean      @default(false) @map("feature_google_meet_ativo")
+  googleSendInviteToPatient Boolean @default(false) @map("feature_google_convite_paciente_ativo")
+  timezone           String       @default("America/Sao_Paulo")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  professional       Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@map("configuracoes")
+}
+
+model GoogleCalendarEventMapping {
+  id             String       @id @default(cuid())
+  professionalId String       @map("profissional_id")
+  appointmentId  String       @map("agendamento_id")
+  googleEventId  String       @map("google_event_id")
+  meetingUrl     String?      @map("meeting_url")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  appointment    Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([appointmentId], map: "google_event_mapping_agendamento_id_key")
+  @@index([professionalId, updatedAt], map: "google_event_mapping_profissional_id_updated_at_idx")
+  @@map("google_event_mapping")
+}
+
+model GoogleCalendarSyncJob {
+  id             String         @id @default(cuid())
+  professionalId String         @map("profissional_id")
+  appointmentId  String         @map("agendamento_id")
+  action         GoogleSyncAction
+  status         GoogleSyncStatus @default(PENDING)
+  attempts       Int            @default(0)
+  nextAttemptAt  DateTime       @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  lastError      String?        @map("last_error")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  professional   Professional   @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  appointment    Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt], map: "google_sync_jobs_status_next_attempt_at_idx")
+  @@index([professionalId, createdAt], map: "google_sync_jobs_profissional_id_created_at_idx")
+  @@index([appointmentId, createdAt], map: "google_sync_jobs_agendamento_id_created_at_idx")
+  @@map("google_sync_jobs")
+}
+
+model WhatsappSession {
+  id               String       @id @default(cuid())
+  professionalId   String       @map("profissional_id")
+  phoneNumber      String       @map("phone_number")
+  currentState     String       @default("INITIAL") @map("current_state")
+  isActive         Boolean      @default(true) @map("is_active")
+  lastMessageAt    DateTime?    @map("last_message_at") @db.Timestamptz(3)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  professional     Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@unique([professionalId, phoneNumber], map: "sessoes_whatsapp_profissional_id_phone_number_key")
+  @@index([professionalId, updatedAt], map: "sessoes_whatsapp_profissional_id_updated_at_idx")
+  @@map("sessoes_whatsapp")
+}
