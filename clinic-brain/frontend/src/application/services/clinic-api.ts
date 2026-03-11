@@ -1,4 +1,4 @@
-import { clearAccessToken, getAccessToken } from '../../shared/auth/token-storage'
+import { clearAccessToken, getValidAccessToken, notifySessionExpired } from '../../shared/auth/token-storage'
 
 export type AuthLoginResult = {
   accessToken: string
@@ -24,6 +24,89 @@ export type DashboardOverview = {
   monthAppointments: number
   upcomingAppointments: number
   canceledAppointments: number
+  config?: { inactivityMonths?: number; topLimit?: number; defaultPeriodDays?: number }
+  patientsInactive?: Array<{
+    id: string
+    name: string
+    phoneNumber: string
+    status: 'ATIVO' | 'INATIVO'
+    lastConsultationAt: string | null
+    daysSinceLastConsultation: number | null
+  }>
+  patientsInactiveCount?: number
+  patientsTopConsultations?: Array<{ id: string; name: string; phoneNumber: string; consultationCount: number }>
+  patientsNew?: Array<{
+    id: string
+    name: string
+    phoneNumber: string
+    firstConsultationAt: string | null
+    createdAt: string
+  }>
+  patientsNewCount?: number
+  reactivationRate?: {
+    totalInactive: number
+    totalReturned: number
+    reactivationRatePercent: number
+    period: { from: string; to: string }
+    inactivityMonths: number
+  }
+  loyaltyRate?: {
+    totalConsultations: number
+    loyalPatientsCount: number
+    loyaltyRatePercent: number
+    period: { from: string; to: string }
+  }
+  rescheduleRate?: {
+    totalAppointments: number
+    rescheduledCount: number
+    rescheduleRatePercent: number
+    period: { from: string; to: string }
+  }
+  interactionsSummary?: {
+    byType: { BOT: number; HUMANO: number; PACIENTE: number }
+    total: number
+    period: { from: string; to: string }
+  }
+  agendaOccupancy?: {
+    realizedAppointments: number
+    totalAppointments: number
+    occupancyRatePercent: number
+    period: { from: string; to: string }
+  }
+  appointmentsByMode?: {
+    byMode: { PRESENCIAL: number; REMOTO: number }
+    total: number
+    period: { from: string; to: string }
+  }
+  averageConsultationMinutes?: {
+    averageMinutes: number
+    appointmentCount: number
+    period: { from: string; to: string }
+  }
+  period?: { from: string; to: string }
+}
+
+export type DashboardConfig = {
+  inactivityMonths?: number
+  topLimit?: number
+  defaultPeriodDays?: number
+  enabledWidgets?: string[]
+}
+
+export type ReportConfig = {
+  defaultPeriodDays?: number
+  inactivityMonthsOptions?: number[]
+  topLimitOptions?: number[]
+  enabledReports?: string[]
+}
+
+export type ReportFiltersParams = {
+  from?: string
+  to?: string
+  limit?: number
+  inactivityMonths?: number
+  minCancellations?: number
+  minReschedules?: number
 }
 
 export type AppointmentListItem = {
@@ -159,6 +242,30 @@ export type PendingPatientRequest = {
   }
 }
 
+export type RecentPatientRequest = {
+  id: string
+  createdAt: string
+  patient: {
+    id: string
+    name: string
+    phoneNumber: string
+  } | null
+  payload: {
+    type: 'BOOK_REQUEST' | 'RESCHEDULE_REQUEST'
+    status: 'APPROVED' | 'REJECTED'
+    reviewedAt?: string
+    reviewReason?: string
+    reviewedVia?: 'PANEL' | 'WHATSAPP'
+    startsAt?: string
+    endsAt?: string
+    appointmentId?: string
+    currentStartsAt?: string
+    currentEndsAt?: string
+    requestedStartsAt?: string
+    requestedEndsAt?: string
+  }
+}
+
 export type PatientPortalAuthResult = {
   accessToken: string
   patient: {
@@ -267,11 +374,15 @@ async function apiRequest<TResponse>(
   body?: Record<string, unknown>,
   requiresAuth = true,
 ): Promise<TResponse> {
-  const token = getAccessToken()
+  const token = requiresAuth ? getValidAccessToken() : null
+  if (requiresAuth && !token) {
+    clearAccessToken()
+    notifySessionExpired()
+    throw new Error('Sessão expirada. Faça login novamente.')
+  }
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-
   if (requiresAuth && token) {
     headers.Authorization = `Bearer ${token}`
   }
@@ -284,6 +395,7 @@ async function apiRequest<TResponse>(
 
   if (response.status === 401) {
     clearAccessToken()
+    notifySessionExpired()
     throw new Error('Sessão expirada. Faça login novamente.')
   }
 
@@ -395,7 +507,12 @@ async function apiRequestNoContent(
   method: 'PATCH' | 'POST' | 'DELETE',
   body?: Record<string, unknown>,
 ): Promise<void> {
-  const token = getAccessToken()
+  const token = getValidAccessToken()
+  if (!token) {
+    clearAccessToken()
+    notifySessionExpired()
+    throw new Error('Sessão expirada. Faça login novamente.')
+  }
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method,
     headers: {
@@ -406,6 +523,7 @@ async function apiRequestNoContent(
   })
   if (response.status === 401) {
     clearAccessToken()
+    notifySessionExpired()
     throw new Error('Sessão expirada. Faça login novamente.')
   }
   if (!response.ok) {
@@ -458,8 +576,137 @@ export function deleteAdminStaff(professionalId: string, staffId: string) {
   return apiRequestNoContent(`/admin/professionals/${professionalId}/staff/${staffId}`, 'DELETE')
 }
 
-export function fetchDashboardOverview() {
-  return apiRequest<DashboardOverview>('/dashboard/overview', 'GET')
+export function fetchDashboardOverview(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<DashboardOverview>(`/dashboard/overview${search ? `?${search}` : ''}`, 'GET')
+}
+
+export function fetchDashboardConfig() {
+  return apiRequest<DashboardConfig>('/settings/dashboard-config', 'GET')
+}
+
+export function updateDashboardConfig(config: Partial<DashboardConfig>) {
+  return apiRequest<DashboardConfig>('/settings/dashboard-config', 'PUT', config)
+}
+
+export function fetchReportConfig() {
+  return apiRequest<ReportConfig>('/settings/report-config', 'GET')
+}
+
+export function updateReportConfig(config: Partial<ReportConfig>) {
+  return apiRequest<ReportConfig>('/settings/report-config', 'PUT', config)
+}
+
+export function fetchPatientsInactive(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<{ patients: DashboardOverview['patientsInactive']; period: { from: string; to: string } }>(
+    `/reports/patients-inactive${search ? `?${search}` : ''}`,
+    'GET',
+  )
+}
+
+export function fetchPatientsTopConsultations(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<{
+    patients: NonNullable<DashboardOverview['patientsTopConsultations']>
+    period: { from: string; to: string }
+  }>(`/reports/patients-top-consultations${search ? `?${search}` : ''}`, 'GET')
+}
+
+export function fetchPatientsCancellations(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<{
+    patients: Array<{ id: string; name: string; phoneNumber: string; cancellationCount: number }>
+    period: { from: string; to: string }
+  }>(`/reports/patients-cancellations${search ? `?${search}` : ''}`, 'GET')
+}
+
+export function fetchPatientsReschedules(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<{
+    patients: Array<{ id: string; name: string; phoneNumber: string; rescheduleCount: number }>
+    period: { from: string; to: string }
+  }>(`/reports/patients-reschedules${search ? `?${search}` : ''}`, 'GET')
+}
+
+export function fetchPatientsNew(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<{
+    patients: NonNullable<DashboardOverview['patientsNew']>
+    period: { from: string; to: string }
+  }>(`/reports/patients-new${search ? `?${search}` : ''}`, 'GET')
+}
+
+export function fetchReactivationRate(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<NonNullable<DashboardOverview['reactivationRate']>>(
+    `/reports/reactivation-rate${search ? `?${search}` : ''}`,
+    'GET',
+  )
+}
+
+export function fetchLoyaltyRate(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<NonNullable<DashboardOverview['loyaltyRate']>>(
+    `/reports/loyalty-rate${search ? `?${search}` : ''}`,
+    'GET',
+  )
+}
+
+export function fetchRescheduleRate(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<NonNullable<DashboardOverview['rescheduleRate']>>(
+    `/reports/reschedule-rate${search ? `?${search}` : ''}`,
+    'GET',
+  )
+}
+
+export function fetchAppointmentsBySchedule(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<{
+    slots: Array<{ weekday: number; weekdayLabel: string; hour: number; hourLabel: string; count: number }>
+    period: { from: string; to: string }
+  }>(`/reports/appointments-by-schedule${search ? `?${search}` : ''}`, 'GET')
+}
+
+export function fetchInteractionsReport(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<NonNullable<DashboardOverview['interactionsSummary']>>(
+    `/reports/interactions${search ? `?${search}` : ''}`,
+    'GET',
+  )
+}
+
+export function fetchPatientsTopInteractions(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<{
+    patients: Array<{ id: string; name: string; phoneNumber: string; interactionCount: number }>
+    period: { from: string; to: string }
+  }>(`/reports/patients-top-interactions${search ? `?${search}` : ''}`, 'GET')
+}
+
+export function fetchAgendaOccupancy(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<NonNullable<DashboardOverview['agendaOccupancy']>>(
+    `/reports/agenda-occupancy${search ? `?${search}` : ''}`,
+    'GET',
+  )
+}
+
+export function fetchAppointmentsByMode(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<NonNullable<DashboardOverview['appointmentsByMode']>>(
+    `/reports/appointments-by-mode${search ? `?${search}` : ''}`,
+    'GET',
+  )
+}
+
+export function fetchAverageConsultationDuration(params?: ReportFiltersParams) {
+  const search = params ? new URLSearchParams(params as Record<string, string>).toString() : ''
+  return apiRequest<NonNullable<DashboardOverview['averageConsultationMinutes']>>(
+    `/reports/average-consultation-duration${search ? `?${search}` : ''}`,
+    'GET',
+  )
 }
 
 export function fetchAppointments() {
@@ -531,6 +778,10 @@ export function disconnectGoogleIntegration() {
   return apiRequestNoContent('/integrations/google/disconnect', 'POST')
 }
 
+export function clearAllPatientData(): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>('/settings/clear-patients-data', 'POST', {})
+}
+
 export function updateSettingsMessages(input: {
   welcomeMessage: string
   confirmationMessage: string
@@ -550,6 +801,43 @@ export function fetchMonthlyReport(from: string, to: string) {
 
 export function fetchPendingPatientRequests() {
   return apiRequest<PendingPatientRequest[]>('/patient-requests/pending', 'GET')
+}
+
+export function fetchRecentPatientRequests() {
+  return apiRequest<RecentPatientRequest[]>('/patient-requests/recent', 'GET')
+}
+
+/** Inscreve em atualizações em tempo real das solicitações. Chama onUpdate quando houver mudança. Retorna função para cancelar. */
+export function subscribeToPatientRequestsStream(onUpdate: () => void): () => void {
+  const token = getValidAccessToken()
+  if (!token) return () => {}
+
+  const url = `${resolveApiBaseUrl()}/patient-requests/stream`
+  const controller = new AbortController()
+
+  fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok || !res.body) return
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) onUpdate()
+        }
+      }
+    })
+    .catch(() => {})
+
+  return () => controller.abort()
 }
 
 export function reviewPatientRequest(input: { id: string; action: 'APPROVE' | 'REJECT'; reason?: string }) {

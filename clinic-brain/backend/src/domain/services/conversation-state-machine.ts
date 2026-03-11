@@ -27,12 +27,12 @@ function normalizeInput(input: string): string {
 
 function mainMenuMessage(doctorName: string): string {
   return [
-    `Olá! 👋 Você está falando com a assistente da ${doctorName}.`,
+    `Olá! 👋 Você está falando com a assistente de ${doctorName}.`,
     'Escolha uma opção:',
     '1 - Marcar consulta',
     '2 - Remarcar consulta',
     '3 - Cancelar consulta',
-    '4 - Conversar com a doutora',
+    '4 - Conversar com o profissional',
     '0 - Encerrar conversa',
   ].join('\n')
 }
@@ -43,7 +43,7 @@ function servicesMenuMessage(bookingUrl: string): string {
     `1 - Marcar consulta (${bookingUrl})`,
     `2 - Remarcar consulta (${bookingUrl})`,
     `3 - Cancelar consulta (${bookingUrl})`,
-    '4 - Conversar com a doutora',
+    '4 - Conversar com o profissional',
     '0 - Voltar ao menu principal',
   ].join('\n')
 }
@@ -51,7 +51,7 @@ function servicesMenuMessage(bookingUrl: string): string {
 function bookingActionMessage(action: 'marcar' | 'remarcar' | 'cancelar', bookingUrl: string): string {
   return [
     `Perfeito. Para ${action} consulta, use este link: ${bookingUrl}`,
-    'Se quiser conversar direto com a doutora, envie 4.',
+    'Se quiser conversar direto com o profissional, envie 4.',
     'Para voltar ao menu principal, envie "menu".',
   ].join('\n')
 }
@@ -61,19 +61,26 @@ function resolveOption(input: string): string {
     return input
   }
 
-  if (input.includes('remarcar')) {
-    return '2'
-  }
-
-  if (input.includes('marcar') || input.includes('agendar')) {
-    return '1'
-  }
-
+  // Ordem importa: cancelar/remarcar antes de marcar (evita "cancelar consulta" -> opção 1)
   if (input.includes('cancelar')) {
     return '3'
   }
 
+  if (input.includes('remarcar')) {
+    return '2'
+  }
+
   if (
+    input.includes('marcar') ||
+    input.includes('agendar') ||
+    input.includes('consultar') ||
+    (input.includes('consulta') && !input.includes('cancelar'))
+  ) {
+    return '1'
+  }
+
+  if (
+    input.includes('doutor') ||
     input.includes('doutora') ||
     input.includes('atendente') ||
     input.includes('humano') ||
@@ -107,7 +114,7 @@ export function runConversationStateMachine(
   const normalizedInput = normalizeInput(input.userInput)
   const option = resolveOption(normalizedInput)
   const bookingUrl = input.bookingUrl ?? 'http://localhost:5173'
-  const doctorName = input.doctorName ?? 'Dra. Ana'
+  const doctorName = input.doctorName ?? 'profissional'
   const customGreeting =
     typeof input.welcomeMessage === 'string' && input.welcomeMessage.trim().length > 0
       ? input.welcomeMessage.trim()

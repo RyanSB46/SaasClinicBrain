@@ -15,7 +15,7 @@ describe('Webhook integration', () => {
   beforeAll(async () => {
     const professional = await prisma.professional.findFirst({
       where: {
-        email: 'ana.silva@clinicbrain.local',
+        evolutionInstanceName: 'automation',
       },
       select: {
         id: true,
@@ -23,7 +23,7 @@ describe('Webhook integration', () => {
     })
 
     if (!professional) {
-      throw new Error('Profissional seed não encontrado para teste de webhook')
+      throw new Error('Profissional com instance automation não encontrado para teste de webhook')
     }
 
     professionalId = professional.id

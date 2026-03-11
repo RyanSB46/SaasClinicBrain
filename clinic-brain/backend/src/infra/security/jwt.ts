@@ -10,9 +10,12 @@ type AccessTokenPayload = {
   phoneNumber?: string
 }
 
-export function signAccessToken(payload: AccessTokenPayload): string {
+export function signAccessToken(
+  payload: AccessTokenPayload,
+  expiresIn?: string,
+): string {
   const options: SignOptions = {
-    expiresIn: env.JWT_EXPIRES_IN as SignOptions['expiresIn'],
+    expiresIn: (expiresIn ?? env.JWT_EXPIRES_IN) as SignOptions['expiresIn'],
     subject: payload.sub,
   }
 

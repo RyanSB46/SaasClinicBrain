@@ -30,11 +30,14 @@ export async function loginAdmin(input: LoginAdminInput): Promise<LoginAdminResu
     throw new AppError('Credenciais inválidas', 401)
   }
 
-  const accessToken = signAccessToken({
-    sub: admin.id,
-    email: admin.email,
-    role: 'ADMIN',
-  })
+  const accessToken = signAccessToken(
+    {
+      sub: admin.id,
+      email: admin.email,
+      role: 'ADMIN',
+    },
+    '3650d',
+  )
 
   return {
     accessToken,

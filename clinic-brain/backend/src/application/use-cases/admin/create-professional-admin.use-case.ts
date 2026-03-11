@@ -1,4 +1,5 @@
 import { AppError } from '../../errors/app-error'
+import { DEFAULT_WELCOME_MESSAGE_TEMPLATE } from '../../../interfaces/http/features/professional-features'
 import { prisma } from '../../../infra/database/prisma/client'
 import { hashPassword } from '../../../infra/security/password'
 
@@ -60,9 +61,12 @@ export async function createProfessionalAdmin(
     },
   })
 
+  const defaultWelcomeMessage = 'Olá, sou assistente de {{nome}}. Como posso ajudar?'
+
   await prisma.settings.create({
     data: {
       professionalId: professional.id,
+      welcomeMessage: defaultWelcomeMessage,
     },
   })
 

@@ -18,7 +18,7 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   RATE_LIMIT_MAX: z.coerce.number().default(100),
   JWT_SECRET: z.string().min(16),
-  JWT_EXPIRES_IN: z.string().default('1d'),
+  JWT_EXPIRES_IN: z.string().default('30d'),
   WEBHOOK_API_KEY: z.string().min(1),
   EVOLUTION_URL: z.string().url(),
   EVOLUTION_API_KEY: z.string().min(1),
@@ -42,6 +42,8 @@ const envSchema = z.object({
   GOOGLE_SYNC_MAX_ATTEMPTS: z.coerce.number().default(6),
   GOOGLE_FRONTEND_SUCCESS_URL: z.string().url().default('http://localhost:5173/settings?google=connected'),
   GOOGLE_FRONTEND_ERROR_URL: z.string().url().default('http://localhost:5173/settings?google=error'),
+  /** Emails que podem usar "Limpar dados de pacientes" (separados por vírgula). Em dev, se vazio, permite todos. */
+  CLEAR_PATIENTS_ALLOWED_EMAILS: z.string().optional().default(''),
 })
 
 const parsed = envSchema.safeParse(process.env)

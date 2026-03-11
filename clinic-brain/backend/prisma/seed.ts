@@ -6,10 +6,15 @@ const prisma = new PrismaClient()
 async function main() {
   // Senhas apenas para ambiente de desenvolvimento - NUNCA use em produção
   const passwordHash = await bcrypt.hash('SeedDev@123', 10)
-  const adminPasswordHash = await bcrypt.hash('SeedAdmin@123', 10)
+  const adminPasswordHash = await bcrypt.hash('1133557799', 10)
+
+  // Remove admin antigo se existir (migração de credenciais)
+  await prisma.adminUser.deleteMany({
+    where: { email: 'admin.tecnico@clinicbrain.local' },
+  })
 
   await prisma.adminUser.upsert({
-    where: { email: 'admin.tecnico@clinicbrain.local' },
+    where: { email: 'ryansb@gmail.com' },
     update: {
       name: 'Admin Técnico',
       passwordHash: adminPasswordHash,
@@ -17,33 +22,55 @@ async function main() {
     },
     create: {
       name: 'Admin Técnico',
-      email: 'admin.tecnico@clinicbrain.local',
+      email: 'ryansb@gmail.com',
       passwordHash: adminPasswordHash,
       isActive: true,
     },
   })
 
-  const professional = await prisma.professional.upsert({
+  // Remove instância de ana.silva se existir (para Ryan usar "automation")
+  await prisma.professional.updateMany({
     where: { email: 'ana.silva@clinicbrain.local' },
+    data: { evolutionInstanceName: null },
+  })
+
+  // Corrige Settings antigos com "Dra. Ana" ou "Doutora Ana" fixos
+  const oldWelcomeSettings = await prisma.settings.findMany({
+    where: {
+      OR: [
+        { welcomeMessage: { contains: 'Dra. Ana' } },
+        { welcomeMessage: { contains: 'Doutora Ana' } },
+      ],
+    },
+  })
+  for (const s of oldWelcomeSettings) {
+    await prisma.settings.update({
+      where: { id: s.id },
+      data: { welcomeMessage: 'Olá, sou assistente de {{nome}}. Como posso ajudar?' },
+    })
+  }
+
+  const professional = await prisma.professional.upsert({
+    where: { email: 'ryansb@gmail.com' },
     update: {
-      name: 'Dra. Ana Silva',
-      passwordHash,
-      phoneNumber: '5527999990001',
-      professionalType: 'PSICANALISTA',
+      name: 'Ryan',
+      passwordHash: adminPasswordHash,
+      phoneNumber: '5527981017804',
+      professionalType: 'PSICÓLOGO',
       evolutionInstanceName: 'automation',
-      specialty: 'Psicanálise',
-      consultationFeeCents: 18000,
+      specialty: 'Psicologia',
+      consultationFeeCents: 15000,
       timezone: 'America/Sao_Paulo',
     },
     create: {
-      name: 'Dra. Ana Silva',
-      email: 'ana.silva@clinicbrain.local',
-      passwordHash,
-      phoneNumber: '5527999990001',
-      professionalType: 'PSICANALISTA',
+      name: 'Ryan',
+      email: 'ryansb@gmail.com',
+      passwordHash: adminPasswordHash,
+      phoneNumber: '5527981017804',
+      professionalType: 'PSICÓLOGO',
       evolutionInstanceName: 'automation',
-      specialty: 'Psicanálise',
-      consultationFeeCents: 18000,
+      specialty: 'Psicologia',
+      consultationFeeCents: 15000,
       timezone: 'America/Sao_Paulo',
     },
   })
@@ -140,10 +167,23 @@ async function main() {
       },
     }))
 
+  // Corrige Settings antigos com "Dra. Ana" ou "Doutora Ana" em qualquer profissional
+  await prisma.settings.updateMany({
+    where: {
+      OR: [
+        { welcomeMessage: { contains: 'Dra. Ana' } },
+        { welcomeMessage: { contains: 'Doutora Ana' } },
+      ],
+    },
+    data: {
+      welcomeMessage: 'Olá, sou assistente de {{nome}}. Como posso ajudar?',
+    },
+  })
+
   await prisma.settings.upsert({
     where: { professionalId: professional.id },
     update: {
-      welcomeMessage: 'Olá, sou assistente da Dra. Ana. Como posso ajudar?',
+      welcomeMessage: 'Olá, sou assistente de {{nome}}. Como posso ajudar?',
       confirmationMessage: 'Você confirma sua consulta?',
       cancellationPolicy: 'Cancelamentos com 24h de antecedência.',
       reminderD1Enabled: true,
@@ -151,7 +191,7 @@ async function main() {
     },
     create: {
       professionalId: professional.id,
-      welcomeMessage: 'Olá, sou assistente da Dra. Ana. Como posso ajudar?',
+      welcomeMessage: 'Olá, sou assistente de {{nome}}. Como posso ajudar?',
       confirmationMessage: 'Você confirma sua consulta?',
       cancellationPolicy: 'Cancelamentos com 24h de antecedência.',
       reminderD1Enabled: true,

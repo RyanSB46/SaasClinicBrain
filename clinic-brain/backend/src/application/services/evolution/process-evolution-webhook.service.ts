@@ -1,10 +1,10 @@
 import { InteractionType } from '@prisma/client'
 import { prisma } from '../../../infra/database/prisma/client'
 import { env } from '../../../infra/config/env'
-import {
-  ConversationState,
-  runConversationStateMachine,
-} from '../../../domain/services/conversation-state-machine'
+import { handleChatbotMessage } from '../chatbot/message-handler'
+import type { ChatbotMetadata } from '../chatbot/chatbot.types'
+import { processPatientRequestReview } from '../../use-cases/patient-requests/process-patient-request-review.use-case'
+import { notifyPatientRequestsUpdated } from '../patient-requests-events.service'
 import { sendEvolutionMessage } from './send-evolution-message.service'
 import {
   DEFAULT_PROFESSIONAL_FEATURE_FLAGS,
@@ -22,11 +22,7 @@ type ProcessEvolutionWebhookResult = {
   reason?: string
   payload?: ParsedTextEvent
   duplicate?: boolean
-  conversation?: {
-    previousState: ConversationState
-    nextState: ConversationState
-    shouldEnd: boolean
-  }
+  responseSent?: boolean
 }
 
 type ResolvedProfessionalContext = {
@@ -37,6 +33,32 @@ type ResolvedProfessionalContext = {
 }
 
 type JsonObject = Record<string, unknown>
+
+/** Evita processar a mesma mensagem duas vezes (Evolution pode enviar eventos duplicados com IDs diferentes). */
+const recentProcessedKeys = new Map<string, number>()
+const DEDUP_WINDOW_MS = 20000
+
+function dedupKey(professionalId: string, phoneNumber: string, text: string): string {
+  const normalized = text.trim().toLowerCase().slice(0, 200)
+  return `${professionalId}:${phoneNumber}:${normalized}`
+}
+
+function isRecentDuplicate(key: string): boolean {
+  const now = Date.now()
+  const last = recentProcessedKeys.get(key)
+  if (last && now - last < DEDUP_WINDOW_MS) return true
+  return false
+}
+
+function markProcessed(key: string): void {
+  const now = Date.now()
+  recentProcessedKeys.set(key, now)
+  if (recentProcessedKeys.size > 500) {
+    for (const [k, t] of recentProcessedKeys.entries()) {
+      if (now - t > DEDUP_WINDOW_MS) recentProcessedKeys.delete(k)
+    }
+  }
+}
 
 function getNestedValue(source: unknown, path: string[]): unknown {
   let current: unknown = source
@@ -138,25 +160,22 @@ function extractInstanceName(payload: unknown): string | null {
   return candidate.trim()
 }
 
-function isSupportedTextEvent(payload: unknown): boolean {
+/** Qualquer evento de mensagem (texto, áudio, imagem, etc.). */
+function isAnyMessageEvent(payload: unknown): boolean {
   const event = String(getNestedValue(payload, ['event']) ?? '').toLowerCase()
+  return event.includes('message') || event.includes('messages')
+}
+
+function isSupportedTextEvent(payload: unknown): boolean {
   const messageType = String(
     getNestedValue(payload, ['data', 'messageType']) ?? getNestedValue(payload, ['type']) ?? '',
   ).toLowerCase()
 
-  if (event.includes('message') || event.includes('messages')) {
-    return true
-  }
-
-  if (
+  return (
     messageType.includes('conversation') ||
     messageType.includes('text') ||
     messageType.includes('extendedtextmessage')
-  ) {
-    return true
-  }
-
-  return false
+  )
 }
 
 function isOutgoingMessage(payload: unknown): boolean {
@@ -165,18 +184,45 @@ function isOutgoingMessage(payload: unknown): boolean {
   return fromMe === true
 }
 
-function asConversationState(value: string | null | undefined): ConversationState {
-  if (
-    value === 'INITIAL' ||
-    value === 'MAIN_MENU' ||
-    value === 'SERVICES_MENU' ||
-    value === 'ATTENDANT' ||
-    value === 'CLOSED'
-  ) {
-    return value
+function parseChatbotMetadata(value: unknown): ChatbotMetadata {
+  if (!value || typeof value !== 'object') return {}
+  const obj = value as Record<string, unknown>
+  const meta: ChatbotMetadata = {}
+  if (typeof obj.lastUnsupportedMessageAt === 'string')
+    meta.lastUnsupportedMessageAt = obj.lastUnsupportedMessageAt
+  return meta
+}
+
+function interpolateWelcomeMessage(
+  welcomeMessage: string | null,
+  professionalName: string,
+): string | null {
+  if (!welcomeMessage || typeof welcomeMessage !== 'string' || welcomeMessage.trim().length === 0) {
+    return null
   }
 
-  return 'INITIAL'
+  let result = welcomeMessage
+    .replace(/\{\{nome\}\}/gi, professionalName)
+    .replace(/\{\{professionalName\}\}/gi, professionalName)
+    .replace(/\{\{name\}\}/gi, professionalName)
+
+  // Fallback: mensagens antigas com "Dra. Ana" ou "Doutora Ana" fixas
+  result = result
+    .replace(/\bda\s+Dra\.\s*Ana\s+Silva\b/gi, `de ${professionalName}`)
+    .replace(/\bda\s+Doutora\s*Ana\s+Silva\b/gi, `de ${professionalName}`)
+    .replace(/\bda\s+Dra\.\s*Ana\b/gi, `de ${professionalName}`)
+    .replace(/\bda\s+Doutora\s*Ana\b/gi, `de ${professionalName}`)
+    .replace(/\bdo\s+Dr\.\s*Ana\b/gi, `de ${professionalName}`)
+    .replace(/\bDra\.\s*Ana\s+Silva\b/gi, professionalName)
+    .replace(/\bDoutora\s*Ana\s+Silva\b/gi, professionalName)
+    .replace(/\bDra\.\s*Ana\b/gi, professionalName)
+    .replace(/\bDoutora\s*Ana\b/gi, professionalName)
+    .replace(/\bDr\.\s*Ana\b/gi, professionalName)
+
+  // Qualquer placeholder {{...}} restante é substituído pelo nome (ex: {{RyanSenna}})
+  result = result.replace(/\{\{[^}]*\}\}/g, professionalName)
+
+  return result.trim()
 }
 
 async function resolveProfessionalContext(
@@ -219,7 +265,7 @@ async function resolveProfessionalContext(
         evolutionApiKey: true,
       },
       orderBy: {
-        createdAt: 'asc',
+        createdAt: 'desc',
       },
     })
 
@@ -228,10 +274,17 @@ async function resolveProfessionalContext(
     }
   }
 
+  // Busca por paciente: prioriza profissional com instância Evolution (consistência)
+  const instanceForPatient = instanceNameFromPayload ?? env.EVOLUTION_INSTANCE
   const patient = await prisma.patient.findFirst({
-    where: {
-      phoneNumber,
-    },
+    where: instanceForPatient
+      ? {
+          phoneNumber,
+          professional: {
+            evolutionInstanceName: instanceForPatient,
+          },
+        }
+      : { phoneNumber },
     orderBy: {
       createdAt: 'desc',
     },
@@ -285,7 +338,7 @@ export async function processEvolutionWebhook(payload: unknown): Promise<Process
     }
   }
 
-  if (!isSupportedTextEvent(body)) {
+  if (!isAnyMessageEvent(body)) {
     return {
       ignored: true,
       reason: 'Evento não suportado',
@@ -295,10 +348,133 @@ export async function processEvolutionWebhook(payload: unknown): Promise<Process
   const phoneNumber = extractPhoneNumber(body)
   const text = extractTextMessage(body)
 
-  if (!phoneNumber || !text) {
+  if (!phoneNumber) {
     return {
       ignored: true,
-      reason: 'Evento sem conteúdo de texto',
+      reason: 'Evento sem número de telefone',
+    }
+  }
+
+  const hasTextContent = Boolean(text && text.trim().length > 0)
+  const normalizedText = (text ?? '').trim().toUpperCase()
+
+  if (hasTextContent && (normalizedText === 'CONFIRMAR' || normalizedText === 'NEGAR')) {
+    const phoneDigits = onlyDigits(phoneNumber)
+    const professionalsWithPhone = await prisma.professional.findMany({
+      where: { phoneNumber: { not: null } },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        evolutionInstanceName: true,
+        evolutionApiKey: true,
+      },
+    })
+    const pro = professionalsWithPhone.find(
+      (p) => onlyDigits(p.phoneNumber ?? '') === phoneDigits,
+    )
+
+    if (pro && onlyDigits(pro.phoneNumber ?? '') === phoneDigits) {
+      const pendingReschedule = await prisma.interaction.findFirst({
+        where: {
+          professionalId: pro.id,
+          messageType: InteractionType.PACIENTE,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: { id: true, messageText: true },
+      })
+
+      const toProcess = pendingReschedule
+        ? (() => {
+            try {
+              const p = JSON.parse(pendingReschedule.messageText) as { type?: string; status?: string }
+              return p.type === 'RESCHEDULE_REQUEST' && p.status === 'PENDING_PROFESSIONAL_APPROVAL'
+                ? pendingReschedule
+                : null
+            } catch {
+              return null
+            }
+          })()
+        : null
+
+      if (!toProcess) {
+        const allInteractions = await prisma.interaction.findMany({
+          where: { professionalId: pro.id, messageType: InteractionType.PACIENTE },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          select: { id: true, messageText: true },
+        })
+        const found = allInteractions.find((i) => {
+          try {
+            const p = JSON.parse(i.messageText) as { type?: string; status?: string }
+            return p.type === 'RESCHEDULE_REQUEST' && p.status === 'PENDING_PROFESSIONAL_APPROVAL'
+          } catch {
+            return false
+          }
+        })
+        if (found) {
+          try {
+            const result = await processPatientRequestReview({
+              professionalId: pro.id,
+              interactionId: found.id,
+              action: normalizedText === 'CONFIRMAR' ? 'APPROVE' : 'REJECT',
+              reviewedVia: 'WHATSAPP',
+            })
+            notifyPatientRequestsUpdated(pro.id)
+            const msg =
+              result.status === 'APPROVED'
+                ? '✅ Remarcação aprovada via WhatsApp.'
+                : '❌ Remarcação recusada via WhatsApp.'
+            await sendEvolutionMessage({
+              phoneNumber: pro.phoneNumber!,
+              text: msg,
+              instanceName: pro.evolutionInstanceName ?? undefined,
+              apiKey: pro.evolutionApiKey ?? undefined,
+            })
+            return {
+              ignored: false,
+              payload: {
+                phoneNumber,
+                text: text!,
+                messageId: extractMessageId(body),
+              },
+            }
+          } catch {
+            /* fall through to normal flow */
+          }
+        }
+      } else {
+        try {
+          const result = await processPatientRequestReview({
+            professionalId: pro.id,
+            interactionId: toProcess.id,
+            action: normalizedText === 'CONFIRMAR' ? 'APPROVE' : 'REJECT',
+            reviewedVia: 'WHATSAPP',
+          })
+          notifyPatientRequestsUpdated(pro.id)
+          const msg =
+            result.status === 'APPROVED'
+              ? '✅ Remarcação aprovada via WhatsApp.'
+              : '❌ Remarcação recusada via WhatsApp.'
+          await sendEvolutionMessage({
+            phoneNumber: pro.phoneNumber!,
+            text: msg,
+            instanceName: pro.evolutionInstanceName ?? undefined,
+            apiKey: pro.evolutionApiKey ?? undefined,
+          })
+          return {
+            ignored: false,
+            payload: {
+              phoneNumber,
+              text: text!,
+              messageId: extractMessageId(body),
+            },
+          }
+        } catch {
+          /* fall through to normal flow */
+        }
+      }
     }
   }
 
@@ -311,36 +487,17 @@ export async function processEvolutionWebhook(payload: unknown): Promise<Process
       reason: 'Profissional não identificado para este evento',
       payload: {
         phoneNumber,
-        text,
+        text: text ?? '[mídia]',
         messageId,
       },
     }
   }
 
   const professionalId = professionalContext.id
-
-  if (!professionalId) {
-    return {
-      ignored: true,
-      reason: 'Profissional não identificado para este evento',
-      payload: {
-        phoneNumber,
-        text,
-        messageId,
-      },
-    }
-  }
-
   const settings = await prisma.settings.findUnique({
-    where: {
-      professionalId,
-    },
-    select: {
-      webhookEnabled: true,
-      welcomeMessage: true,
-    },
+    where: { professionalId },
+    select: { webhookEnabled: true },
   })
-
   const webhookEnabled = settings?.webhookEnabled ?? DEFAULT_PROFESSIONAL_FEATURE_FLAGS.webhookEnabled
 
   if (!webhookEnabled) {
@@ -349,129 +506,144 @@ export async function processEvolutionWebhook(payload: unknown): Promise<Process
       reason: 'Webhook desativado para este profissional',
       payload: {
         phoneNumber,
-        text,
+        text: text ?? '[mídia]',
         messageId,
       },
     }
   }
 
   const existingInteraction = await prisma.interaction.findFirst({
-    where: {
-      professionalId,
-      externalMessageId: messageId,
-    },
-    select: {
-      id: true,
-    },
+    where: { professionalId, externalMessageId: messageId },
+    select: { id: true },
   })
-
   if (existingInteraction) {
     return {
       ignored: true,
       reason: 'Evento duplicado já processado',
       duplicate: true,
-      payload: {
-        phoneNumber,
-        text,
-        messageId,
-      },
+      payload: { phoneNumber, text: text ?? '[mídia]', messageId },
     }
   }
 
-  const patient = await prisma.patient.findFirst({
-    where: {
-      professionalId,
-      phoneNumber,
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-    select: {
-      id: true,
-    },
-  })
-
-  const existingSession = await prisma.whatsappSession.findUnique({
-    where: {
-      professionalId_phoneNumber: {
-        professionalId,
-        phoneNumber,
-      },
-    },
-    select: {
-      currentState: true,
-    },
-  })
-
-  const previousState = asConversationState(existingSession?.currentState)
-  const conversation = runConversationStateMachine({
-    currentState: previousState,
-    userInput: text,
-    bookingUrl: env.BOOKING_SITE_URL,
-    doctorName: professionalContext.name,
-    welcomeMessage: settings?.welcomeMessage ?? null,
-  })
-
-  await prisma.$transaction(async (tx) => {
-    await tx.interaction.create({
-      data: {
-        professionalId,
-        patientId: patient?.id,
-        messageText: text,
-        messageType: InteractionType.PACIENTE,
-        externalMessageId: messageId,
-      },
-    })
-
-    await tx.whatsappSession.upsert({
+  if (!hasTextContent) {
+    const session = await prisma.whatsappSession.findUnique({
       where: {
-        professionalId_phoneNumber: {
+        professionalId_phoneNumber: { professionalId, phoneNumber },
+      },
+      select: { chatbotMetadata: true, lastMessageAt: true },
+    })
+    const metadata = parseChatbotMetadata(session?.chatbotMetadata ?? null)
+    if (metadata.lastUnsupportedMessageAt) {
+      return {
+        ignored: false,
+        payload: { phoneNumber, text: '[mídia]', messageId },
+        responseSent: false,
+      }
+    }
+    const unsupportedMsg = 'No momento consigo responder apenas mensagens de texto.'
+    const patient = await prisma.patient.findFirst({
+      where: { professionalId, phoneNumber },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    })
+    const newMetadata = {
+      ...(session?.chatbotMetadata as object | null ?? {}),
+      lastUnsupportedMessageAt: new Date().toISOString(),
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.interaction.create({
+        data: {
+          professionalId,
+          patientId: patient?.id,
+          messageText: '[mídia não suportada]',
+          messageType: InteractionType.PACIENTE,
+          externalMessageId: messageId,
+        },
+      })
+      await tx.whatsappSession.upsert({
+        where: {
+          professionalId_phoneNumber: { professionalId, phoneNumber },
+        },
+        update: {
+          lastMessageAt: new Date(),
+          chatbotMetadata: newMetadata,
+        },
+        create: {
           professionalId,
           phoneNumber,
+          lastMessageAt: new Date(),
+          chatbotMetadata: newMetadata,
         },
-      },
-      update: {
-        currentState: conversation.nextState,
-        isActive: !conversation.shouldEnd,
-        lastMessageAt: new Date(),
-      },
-      create: {
-        professionalId,
-        phoneNumber,
-        currentState: conversation.nextState,
-        isActive: !conversation.shouldEnd,
-        lastMessageAt: new Date(),
-      },
+      })
+      await tx.interaction.create({
+        data: {
+          professionalId,
+          patientId: patient?.id,
+          messageText: unsupportedMsg,
+          messageType: InteractionType.BOT,
+        },
+      })
     })
-
-    await tx.interaction.create({
-      data: {
-        professionalId,
-        patientId: patient?.id,
-        messageText: conversation.responseMessage,
-        messageType: InteractionType.BOT,
-      },
+    await sendEvolutionMessage({
+      phoneNumber,
+      text: unsupportedMsg,
+      instanceName: professionalContext.evolutionInstanceName ?? undefined,
+      apiKey: professionalContext.evolutionApiKey ?? undefined,
     })
-  })
+    return {
+      ignored: false,
+      payload: { phoneNumber, text: '[mídia]', messageId },
+      responseSent: true,
+    }
+  }
 
-  await sendEvolutionMessage({
-    phoneNumber,
-    text: conversation.responseMessage,
-    instanceName: professionalContext.evolutionInstanceName ?? undefined,
-    apiKey: professionalContext.evolutionApiKey ?? undefined,
-  })
+  const dedupKeyValue = dedupKey(professionalId, phoneNumber, text!)
+  if (isRecentDuplicate(dedupKeyValue)) {
+    return {
+      ignored: true,
+      reason: 'Mensagem duplicada (mesmo conteúdo recente)',
+      duplicate: true,
+      payload: { phoneNumber, text: text!, messageId },
+    }
+  }
+  markProcessed(dedupKeyValue)
+
+  const professionalSlug = professionalContext.evolutionInstanceName ?? professionalContext.id
+  const baseUrl = env.BOOKING_SITE_URL.replace(/\/$/, '')
+  const bookingUrl = `${baseUrl}/p/${encodeURIComponent(professionalSlug)}`
+
+  const { responseSent } = await handleChatbotMessage(
+    {
+      professionalId,
+      professionalName: professionalContext.name,
+      phoneNumber,
+      text: text!,
+      messageId,
+      bookingUrl,
+    },
+    {
+      prisma,
+      sendMessage: async (params) => {
+        await sendEvolutionMessage({
+          phoneNumber: params.phoneNumber,
+          text: params.text,
+          instanceName: params.instanceName,
+          apiKey: params.apiKey,
+        })
+      },
+      getProfessionalContext: async (profId) => {
+        const p = await prisma.professional.findUnique({
+          where: { id: profId },
+          select: { evolutionInstanceName: true, evolutionApiKey: true },
+        })
+        return p
+      },
+    },
+  )
 
   return {
     ignored: false,
-    payload: {
-      phoneNumber,
-      text,
-      messageId,
-    },
-    conversation: {
-      previousState,
-      nextState: conversation.nextState,
-      shouldEnd: conversation.shouldEnd,
-    },
+    payload: { phoneNumber, text: text!, messageId },
+    responseSent,
   }
 }

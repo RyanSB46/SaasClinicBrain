@@ -5,7 +5,12 @@ type ErrorStateProps = {
 }
 
 export function LoadingState({ message }: { message?: string }) {
-  return <div className="state-box">{message ?? 'Carregando...'}</div>
+  return (
+    <div className="state-box" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div className="skeleton-shimmer" style={{ width: 24, height: 24, flexShrink: 0 }} />
+      <span>{message ?? 'Carregando...'}</span>
+    </div>
+  )
 }
 
 export function ErrorState({ title, message, onRetry }: ErrorStateProps) {

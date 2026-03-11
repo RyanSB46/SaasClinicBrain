@@ -14,6 +14,10 @@ export type ProfessionalFeatureKey =
 
 export type ProfessionalFeatureFlags = Record<ProfessionalFeatureKey, boolean>
 
+/** Template padrão para mensagem de boas-vindas. Use {{nome}} para o nome do profissional. */
+export const DEFAULT_WELCOME_MESSAGE_TEMPLATE =
+  'Olá, sou assistente de {{nome}}. Como posso ajudar?'
+
 export const DEFAULT_PROFESSIONAL_FEATURE_FLAGS: ProfessionalFeatureFlags = {
   dashboardEnabled: true,
   agendaEnabled: true,

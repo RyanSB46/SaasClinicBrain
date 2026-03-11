@@ -4,15 +4,15 @@
   "version": "0.1.0",
   "description": "SaaS de gestão clínica com backend e frontend em monorepo",
   "workspaces": [
-    "backend",
-    "frontend"
+    "clinic-brain/backend",
+    "clinic-brain/frontend"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace backend",
-    "dev:backend": "npm run dev --workspace backend",
-    "dev:frontend": "npm run dev --workspace frontend",
-    "build": "npm run build --workspace backend && npm run build --workspace frontend",
-    "lint": "npm run lint --workspace backend && npm run lint --workspace frontend",
+    "dev": "npm run dev -w clinic-brain/backend",
+    "dev:backend": "npm run dev -w clinic-brain/backend",
+    "dev:frontend": "npm run dev -w clinic-brain/frontend",
+    "build": "npm run build -w clinic-brain/backend && npm run build -w clinic-brain/frontend",
+    "lint": "npm run lint -w clinic-brain/backend && npm run lint -w clinic-brain/frontend",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

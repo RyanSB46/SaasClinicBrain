@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { LoginPage } from './pages/login-page'
 import { DashboardPage } from './pages/dashboard-page'
@@ -9,7 +10,8 @@ import { ReportsPage } from './pages/reports-page'
 import { PatientPortalPage } from './pages/patient-portal-page'
 import { PatientRequestsPage } from './pages/patient-requests-page'
 import { AdminPanelPage } from './pages/admin-panel-page'
-import { clearAccessToken, getAccessToken, setAccessToken } from '../shared/auth/token-storage'
+import { AnimatedPage } from './components/animated-page'
+import { clearAccessToken, getValidAccessToken, setAccessToken } from '../shared/auth/token-storage'
 import {
   DEFAULT_PROFESSIONAL_FEATURE_FLAGS,
   fetchSettingsFeatures,
@@ -69,9 +71,18 @@ export function ClinicApp() {
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
   const patientPortalMatch = pathname.match(/^\/p\/([^/]+)$/)
 
-  const [token, setToken] = useState<string | null>(getAccessToken())
+  const [token, setToken] = useState<string | null>(getValidAccessToken())
   const [activeSection, setActiveSection] = useState<SectionKey>('dashboard')
   const authRole = useMemo(() => getAuthRole(token), [token])
+
+  useEffect(() => {
+    const handler = () => {
+      clearAccessToken()
+      setToken(null)
+    }
+    window.addEventListener('auth:session-expired', handler)
+    return () => window.removeEventListener('auth:session-expired', handler)
+  }, [])
 
   const featuresQuery = useQuery({
     queryKey: ['settings-features'],
@@ -144,7 +155,9 @@ export function ClinicApp() {
             <h2>Gerenciamento de profissionais</h2>
           </header>
 
-          <AdminPanelPage />
+          <AnimatedPage key="admin">
+            <AdminPanelPage />
+          </AnimatedPage>
         </main>
       </div>
     )
@@ -186,12 +199,38 @@ export function ClinicApp() {
           <h2>{title}</h2>
         </header>
 
-        {activeSection === 'dashboard' && <DashboardPage />}
-        {activeSection === 'agenda' && <AgendaPage />}
-        {activeSection === 'patients' && <PatientsPage />}
-        {activeSection === 'reports' && <ReportsPage />}
-        {activeSection === 'requests' && <PatientRequestsPage />}
-        {activeSection === 'settings' && <SettingsPage />}
+        <AnimatePresence mode="wait">
+          {activeSection === 'dashboard' && (
+            <AnimatedPage key="dashboard">
+              <DashboardPage />
+            </AnimatedPage>
+          )}
+          {activeSection === 'agenda' && (
+            <AnimatedPage key="agenda">
+              <AgendaPage />
+            </AnimatedPage>
+          )}
+          {activeSection === 'patients' && (
+            <AnimatedPage key="patients">
+              <PatientsPage />
+            </AnimatedPage>
+          )}
+          {activeSection === 'reports' && (
+            <AnimatedPage key="reports">
+              <ReportsPage />
+            </AnimatedPage>
+          )}
+          {activeSection === 'requests' && (
+            <AnimatedPage key="requests">
+              <PatientRequestsPage />
+            </AnimatedPage>
+          )}
+          {activeSection === 'settings' && (
+            <AnimatedPage key="settings">
+              <SettingsPage />
+            </AnimatedPage>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   )

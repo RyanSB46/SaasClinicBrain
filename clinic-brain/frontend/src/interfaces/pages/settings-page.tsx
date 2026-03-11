@@ -2,14 +2,21 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  clearAllPatientData,
   disconnectGoogleIntegration,
+  fetchDashboardConfig,
   fetchGoogleConnectUrl,
   fetchGoogleIntegrationStatus,
+  fetchReportConfig,
   fetchSettingsFeatures,
   fetchSettingsMessages,
+  updateDashboardConfig,
+  updateReportConfig,
   updateSettingsFeatures,
   updateSettingsMessages,
+  type DashboardConfig,
   type ProfessionalFeatureFlags,
+  type ReportConfig,
 } from '../../application/services/clinic-api'
 import { ErrorState, LoadingState } from '../components/feedback-states'
 import {
@@ -31,6 +38,10 @@ export function SettingsPage() {
   const [features, setFeatures] = useState<ProfessionalFeatureFlags | null>(null)
   const [featuresSaved, setFeaturesSaved] = useState(false)
   const [featuresError, setFeaturesError] = useState<string | null>(null)
+  const [clearPatientsFeedback, setClearPatientsFeedback] = useState<string | null>(null)
+  const [dashboardConfig, setDashboardConfig] = useState<DashboardConfig | null>(null)
+  const [reportConfig, setReportConfig] = useState<ReportConfig | null>(null)
+  const [configSaved, setConfigSaved] = useState(false)
 
   const settingsQuery = useQuery({
     queryKey: ['settings-messages'],
@@ -47,6 +58,16 @@ export function SettingsPage() {
     queryFn: fetchGoogleIntegrationStatus,
   })
 
+  const dashboardConfigQuery = useQuery({
+    queryKey: ['dashboard-config'],
+    queryFn: fetchDashboardConfig,
+  })
+
+  const reportConfigQuery = useQuery({
+    queryKey: ['report-config'],
+    queryFn: fetchReportConfig,
+  })
+
   useEffect(() => {
     if (settingsQuery.data) {
       setWelcomeMessage(settingsQuery.data.welcomeMessage ?? '')
@@ -60,6 +81,18 @@ export function SettingsPage() {
       setFeatures(featuresQuery.data)
     }
   }, [featuresQuery.data])
+
+  useEffect(() => {
+    if (dashboardConfigQuery.data) {
+      setDashboardConfig(dashboardConfigQuery.data)
+    }
+  }, [dashboardConfigQuery.data])
+
+  useEffect(() => {
+    if (reportConfigQuery.data) {
+      setReportConfig(reportConfigQuery.data)
+    }
+  }, [reportConfigQuery.data])
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -87,6 +120,25 @@ export function SettingsPage() {
     mutationFn: disconnectGoogleIntegration,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['google-integration-status'] })
+    },
+  })
+
+  const updateDashboardConfigMutation = useMutation({
+    mutationFn: updateDashboardConfig,
+    onSuccess: (result) => {
+      setDashboardConfig(result)
+      setConfigSaved(true)
+      setTimeout(() => setConfigSaved(false), 2500)
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-overview'] })
+    },
+  })
+
+  const updateReportConfigMutation = useMutation({
+    mutationFn: updateReportConfig,
+    onSuccess: (result) => {
+      setReportConfig(result)
+      setConfigSaved(true)
+      setTimeout(() => setConfigSaved(false), 2500)
     },
   })
 
@@ -224,6 +276,9 @@ export function SettingsPage() {
             onChange={(event) => setWelcomeMessage(event.target.value)}
             rows={3}
           />
+          <p className="muted-text" style={{ marginTop: '0.25rem', fontSize: '0.875rem' }}>
+            Use <code>{'{{nome}}'}</code> para inserir o nome do profissional na mensagem.
+          </p>
 
           <label className="field-label" htmlFor="confirmation-message">
             Mensagem de confirmação
@@ -386,6 +441,69 @@ export function SettingsPage() {
       </article>
 
       <article className="card">
+        <h3>Personalização do Dashboard e Relatórios</h3>
+        <p className="muted-text">
+          Ajuste os valores padrão e escolha quais widgets e relatórios exibir. Cada profissional pode configurar ao seu gosto.
+        </p>
+
+        {(dashboardConfigQuery.isLoading || reportConfigQuery.isLoading) ? (
+          <LoadingState message="Carregando personalização..." />
+        ) : dashboardConfig && reportConfig ? (
+          <div className="form-grid">
+            <label className="field-label" htmlFor="dashboard-inactivity">Meses para inatividade (padrão)</label>
+            <select
+              id="dashboard-inactivity"
+              className="field-input"
+              value={dashboardConfig.inactivityMonths ?? 2}
+              onChange={(e) =>
+                updateDashboardConfigMutation.mutate({
+                  inactivityMonths: Number(e.target.value),
+                })
+              }
+            >
+              {[1, 2, 3, 5, 6, 12].map((m) => (
+                <option key={m} value={m}>{m} {m === 1 ? 'mês' : 'meses'}</option>
+              ))}
+            </select>
+
+            <label className="field-label" htmlFor="dashboard-top-limit">Limite no top de listas</label>
+            <select
+              id="dashboard-top-limit"
+              className="field-input"
+              value={dashboardConfig.topLimit ?? 10}
+              onChange={(e) =>
+                updateDashboardConfigMutation.mutate({
+                  topLimit: Number(e.target.value),
+                })
+              }
+            >
+              {[5, 10, 20, 50].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+
+            <label className="field-label" htmlFor="dashboard-period">Período padrão (dias)</label>
+            <select
+              id="dashboard-period"
+              className="field-input"
+              value={dashboardConfig.defaultPeriodDays ?? 30}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                updateDashboardConfigMutation.mutate({ defaultPeriodDays: v })
+                updateReportConfigMutation.mutate({ defaultPeriodDays: v })
+              }}
+            >
+              {[7, 30, 60, 90].map((d) => (
+                <option key={d} value={d}>{d} dias</option>
+              ))}
+            </select>
+
+            {configSaved && <p className="success-text">Configurações salvas com sucesso.</p>}
+          </div>
+        ) : null}
+      </article>
+
+      <article className="card">
         <h3>Integração com Google Calendar</h3>
         <p className="muted-text">
           Conecte sua conta Google para sincronizar consultas e gerar Google Meet automaticamente.
@@ -438,6 +556,47 @@ export function SettingsPage() {
             )}
           </div>
         )}
+      </article>
+
+      <article className="card">
+        <h3>Simulação de cenários</h3>
+        <p className="muted-text">
+          Limpa todos os dados de pacientes (consultas, mensagens, sessões WhatsApp) para simular
+          cenários como: paciente novo entrando em contato pela primeira vez ou paciente com
+          histórico de consultas.
+        </p>
+        <div className="form-grid">
+          <button
+            type="button"
+            className="secondary-button"
+            style={{ alignSelf: 'flex-start' }}
+            onClick={() => {
+              if (
+                window.confirm(
+                  'Isso vai remover TODOS os pacientes, consultas, mensagens e sessões do WhatsApp. Não há como desfazer. Continuar?',
+                )
+              ) {
+                clearAllPatientData()
+                  .then((res) => {
+                    setClearPatientsFeedback(res.message)
+                    setTimeout(() => setClearPatientsFeedback(null), 4000)
+                    void queryClient.invalidateQueries()
+                  })
+                  .catch((err) => {
+                    setClearPatientsFeedback(err instanceof Error ? err.message : 'Erro ao limpar dados')
+                    setTimeout(() => setClearPatientsFeedback(null), 4000)
+                  })
+              }
+            }}
+          >
+            Limpar dados de pacientes
+          </button>
+          {clearPatientsFeedback && (
+            <p className={clearPatientsFeedback.includes('sucesso') ? 'success-text' : 'error-text'}>
+              {clearPatientsFeedback}
+            </p>
+          )}
+        </div>
       </article>
     </section>
   )

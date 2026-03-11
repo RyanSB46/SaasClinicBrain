@@ -44,12 +44,14 @@ export function AdminPanelPage() {
   const professionalsQuery = useQuery({
     queryKey: ['admin-professionals'],
     queryFn: fetchAdminProfessionals,
+    retry: false,
   })
 
   const detailQuery = useQuery({
     queryKey: ['admin-professional', selectedId],
     queryFn: () => fetchAdminProfessional(selectedId!),
     enabled: Boolean(selectedId),
+    retry: false,
   })
 
   const createProfessionalMutation = useMutation({

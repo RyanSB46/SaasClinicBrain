@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchPendingPatientRequests, reviewPatientRequest } from '../../application/services/clinic-api'
+import {
+  fetchPendingPatientRequests,
+  fetchRecentPatientRequests,
+  reviewPatientRequest,
+  subscribeToPatientRequestsStream,
+} from '../../application/services/clinic-api'
 import { EmptyState, ErrorState, LoadingState } from '../components/feedback-states'
 
 function formatDateTime(value: string): string {
@@ -21,6 +26,19 @@ export function PatientRequestsPage() {
     queryFn: fetchPendingPatientRequests,
   })
 
+  const recentQuery = useQuery({
+    queryKey: ['patient-requests-recent'],
+    queryFn: fetchRecentPatientRequests,
+  })
+
+  useEffect(() => {
+    const unsubscribe = subscribeToPatientRequestsStream(() => {
+      void queryClient.invalidateQueries({ queryKey: ['patient-requests-pending'] })
+      void queryClient.invalidateQueries({ queryKey: ['patient-requests-recent'] })
+    })
+    return unsubscribe
+  }, [queryClient])
+
   const reviewMutation = useMutation({
     mutationFn: reviewPatientRequest,
     onSuccess: async (result, variables) => {
@@ -31,6 +49,7 @@ export function PatientRequestsPage() {
       setReviewMessageIsWarning(Boolean(result.deliveryWarning))
 
       await queryClient.invalidateQueries({ queryKey: ['patient-requests-pending'] })
+      await queryClient.invalidateQueries({ queryKey: ['patient-requests-recent'] })
     },
     onError: (error) => {
       setReviewMessage(error.message)
@@ -54,8 +73,9 @@ export function PatientRequestsPage() {
   }
 
   const requests = requestsQuery.data ?? []
+  const recent = recentQuery.data ?? []
 
-  if (requests.length === 0) {
+  if (requests.length === 0 && recent.length === 0) {
     return (
       <section className="reports-grid">
         {reviewMessage ? (
@@ -156,6 +176,26 @@ export function PatientRequestsPage() {
           </article>
         )
       })}
+
+      {recentQuery.data && recentQuery.data.length > 0 ? (
+        <>
+          <h2 style={{ gridColumn: '1 / -1', marginTop: '1rem' }}>Solicitações recentemente processadas</h2>
+          {recentQuery.data.map((item) => {
+            const p = item.payload
+            const isBooking = p.type === 'BOOK_REQUEST'
+            const viaLabel = p.reviewedVia === 'WHATSAPP' ? 'via WhatsApp' : 'via Painel'
+            const statusLabel = p.status === 'APPROVED' ? 'Aprovada' : 'Rejeitada'
+            return (
+              <article className="card" key={item.id}>
+                <h3>{isBooking ? 'Agendamento' : 'Remarcação'} — {statusLabel} {viaLabel}</h3>
+                <p className="muted-text">
+                  Paciente: {item.patient?.name ?? '-'} • {item.payload.reviewedAt ? formatDateTime(item.payload.reviewedAt) : ''}
+                </p>
+              </article>
+            )
+          })}
+        </>
+      ) : null}
     </section>
   )
 }

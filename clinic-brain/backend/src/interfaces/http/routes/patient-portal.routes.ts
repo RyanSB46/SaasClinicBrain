@@ -785,7 +785,8 @@ patientPortalRoutes.post(
         `🔔 Nova solicitação de remarcação no portal.\n` +
         `Paciente: ${patient.name}\n` +
         `Horário atual: ${currentDatetime}\n` +
-        `Novo horário solicitado: ${requestedDatetime}`
+        `Novo horário solicitado: ${requestedDatetime}\n\n` +
+        `Responda CONFIRMAR para aceitar ou NEGAR para recusar.`
 
       if (professional.phoneNumber) {
         try {

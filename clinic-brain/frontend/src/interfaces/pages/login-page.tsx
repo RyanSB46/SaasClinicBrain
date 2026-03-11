@@ -9,8 +9,8 @@ type LoginPageProps = {
 
 export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [loginType, setLoginType] = useState<'PROFESSIONAL' | 'ADMIN' | 'STAFF'>('PROFESSIONAL')
-  const [email, setEmail] = useState('ana.silva@clinicbrain.local')
-  const [password, setPassword] = useState('SeedDev@123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
 
   const loginMutation = useMutation<{ accessToken: string }, Error>({
@@ -55,7 +55,7 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
   return (
     <div className="login-root">
-      <form className="card login-card" onSubmit={handleSubmit}>
+      <form className="card login-card" onSubmit={handleSubmit} autoComplete="off">
         <h1>Clinic Brain</h1>
         <p className="muted-text">
           {loginType === 'ADMIN'
@@ -75,21 +75,8 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
           onChange={(event) => {
             const nextType = event.target.value as 'PROFESSIONAL' | 'ADMIN' | 'STAFF'
             setLoginType(nextType)
-
-            if (nextType === 'ADMIN') {
-              setEmail('admin.tecnico@clinicbrain.local')
-              setPassword('SeedAdmin@123')
-              return
-            }
-
-            if (nextType === 'STAFF') {
-              setEmail('')
-              setPassword('')
-              return
-            }
-
-            setEmail('ana.silva@clinicbrain.local')
-            setPassword('SeedDev@123')
+            setEmail('')
+            setPassword('')
           }}
         >
           <option value="PROFESSIONAL">Profissional</option>
@@ -103,10 +90,12 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
         <input
           id="email"
           className="field-input"
-          type="email"
+          type="text"
+          inputMode="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          autoComplete="email"
+          autoComplete="off"
+          placeholder="seu@email.com"
         />
 
         <label className="field-label" htmlFor="password">
@@ -118,7 +107,8 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          autoComplete="current-password"
+          autoComplete="new-password"
+          placeholder="••••••••"
         />
 
         {(localError || loginMutation.error) && (
