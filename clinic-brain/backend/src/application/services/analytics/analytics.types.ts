@@ -5,6 +5,8 @@ export type DashboardConfig = {
   topLimit?: number
   defaultPeriodDays?: number
   enabledWidgets?: string[]
+  /** Tipos de gráfico que o profissional quer ter disponíveis nos modais (ex: bar, column, line, area, pie, donut, radar) */
+  enabledChartTypes?: string[]
 }
 
 export type ReportConfig = {
@@ -35,6 +37,7 @@ export const DEFAULT_DASHBOARD_CONFIG: DashboardConfig = {
     'appointmentsByMode',
     'averageConsultationMinutes',
   ],
+  enabledChartTypes: ['table', 'bar', 'column', 'line', 'area', 'pie', 'donut', 'radar'],
 }
 
 export const DEFAULT_REPORT_CONFIG: ReportConfig = {

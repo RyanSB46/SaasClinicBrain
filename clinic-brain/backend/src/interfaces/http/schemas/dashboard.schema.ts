@@ -11,6 +11,7 @@ const dashboardConfigSchema = z.object({
   topLimit: z.number().int().min(1).max(100).optional(),
   defaultPeriodDays: z.number().int().min(1).max(365).optional(),
   enabledWidgets: z.array(z.string()).optional(),
+  enabledChartTypes: z.array(z.string()).optional(),
 })
 
 const reportConfigSchema = z.object({

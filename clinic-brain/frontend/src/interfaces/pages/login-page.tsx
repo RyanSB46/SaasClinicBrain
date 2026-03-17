@@ -32,7 +32,7 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   })
 
   const disabled = useMemo(
-    () => loginMutation.isPending || email.trim().length === 0 || password.trim().length < 6,
+    () => loginMutation.isPending || email.trim().length === 0 || password.trim().length < 8,
     [email, password, loginMutation.isPending],
   )
 
@@ -45,8 +45,8 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
       return
     }
 
-    if (password.trim().length < 6) {
-      setLocalError('Senha precisa ter ao menos 6 caracteres.')
+    if (password.trim().length < 8) {
+      setLocalError('Senha precisa ter ao menos 8 caracteres.')
       return
     }
 

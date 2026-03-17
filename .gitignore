@@ -13,3 +13,19 @@ client_secret*.json
 *credentials*.json
 credentials.json
 token.json
+*.pem
+*.key
+**/DATABASE.md
+**/pgadmin-*.json
+**/abrir-pgadmin-*.bat
+
+# Logs e arquivos de execução
+logs/
+*.log
+npm-debug.log*
+
+# Documentação interna, prompts, relatórios e comandos (evitar poluir o repositório)
+prompts/
+**/relatorio*.md
+**/relatório*.md
+**/REMEDIACAO*.md

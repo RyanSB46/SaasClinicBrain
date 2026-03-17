@@ -91,6 +91,8 @@ export type DashboardConfig = {
   topLimit?: number
   defaultPeriodDays?: number
   enabledWidgets?: string[]
+  /** Tipos de gráfico disponíveis nos modais: table, bar, column, line, area, pie, donut, radar */
+  enabledChartTypes?: string[]
 }
 
 export type ReportConfig = {

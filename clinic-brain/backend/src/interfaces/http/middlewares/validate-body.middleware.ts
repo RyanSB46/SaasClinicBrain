@@ -6,12 +6,14 @@ export function validateBody<T>(schema: ZodSchema<T>) {
     const parsed = schema.safeParse(request.body)
 
     if (!parsed.success) {
+      const errors = parsed.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+      }))
+      const firstError = errors[0]?.message ?? 'Payload inválido'
       return response.status(400).json({
-        message: 'Payload inválido',
-        errors: parsed.error.issues.map((issue) => ({
-          path: issue.path.join('.'),
-          message: issue.message,
-        })),
+        message: errors.length > 0 ? firstError : 'Payload inválido',
+        errors,
       })
     }
 

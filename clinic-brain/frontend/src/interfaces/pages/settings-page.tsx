@@ -498,6 +498,203 @@ export function SettingsPage() {
               ))}
             </select>
 
+            <div style={{ gridColumn: '1 / -1' }}>
+              <p className="field-label">Widgets do dashboard (análises)</p>
+              <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                Escolha quais métricas exibir na seção Análises do dashboard.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
+                {[
+                  { id: 'patientsInactive', label: 'Inativos há X meses' },
+                  { id: 'patientsTopConsultations', label: 'Top consultas' },
+                  { id: 'patientsNew', label: 'Novos pacientes' },
+                  { id: 'reactivationRate', label: 'Taxa de reativação' },
+                  { id: 'loyaltyRate', label: 'Taxa de fidelidade' },
+                  { id: 'rescheduleRate', label: 'Taxa de remarcação' },
+                  { id: 'interactionsSummary', label: 'Interações WhatsApp' },
+                  { id: 'agendaOccupancy', label: 'Ocupação da agenda' },
+                  { id: 'appointmentsByMode', label: 'Consultas por modo' },
+                  { id: 'averageConsultationMinutes', label: 'Duração média' },
+                ].map((w) => {
+                  const enabled = new Set(dashboardConfig.enabledWidgets ?? [])
+                  const checked = enabled.has(w.id)
+                  return (
+                    <label key={w.id} className="status-chip">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const next = new Set(enabled)
+                          if (checked) next.delete(w.id)
+                          else next.add(w.id)
+                          updateDashboardConfigMutation.mutate({
+                            enabledWidgets: Array.from(next),
+                          })
+                        }}
+                      />
+                      {w.label}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div style={{ gridColumn: '1 / -1' }}>
+              <p className="field-label">Tipos de gráfico nos modais</p>
+              <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                Escolha quais tipos de visualização exibir ao clicar nas métricas (Tabela, Barras, Colunas, Linha, Área, Pizza, Donut, Radar).
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
+                {[
+                  { id: 'table', label: 'Tabela' },
+                  { id: 'bar', label: 'Barras' },
+                  { id: 'column', label: 'Colunas' },
+                  { id: 'line', label: 'Linha' },
+                  { id: 'area', label: 'Área' },
+                  { id: 'pie', label: 'Pizza' },
+                  { id: 'donut', label: 'Donut' },
+                  { id: 'radar', label: 'Radar' },
+                ].map((c) => {
+                  const enabled = new Set(dashboardConfig.enabledChartTypes ?? [])
+                  const checked = enabled.has(c.id)
+                  return (
+                    <label key={c.id} className="status-chip">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const next = new Set(enabled)
+                          if (checked) next.delete(c.id)
+                          else next.add(c.id)
+                          updateDashboardConfigMutation.mutate({
+                            enabledChartTypes: Array.from(next),
+                          })
+                        }}
+                      />
+                      {c.label}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div style={{ gridColumn: '1 / -1' }}>
+              <p className="field-label">Tipos de gráfico disponíveis nos modais</p>
+              <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                Escolha quais tipos de visualização exibir ao abrir detalhes das métricas (tabela, barras, linhas, pizza, etc.).
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
+                {[
+                  { id: 'table', label: 'Tabela' },
+                  { id: 'bar', label: 'Barras (horizontal)' },
+                  { id: 'column', label: 'Colunas' },
+                  { id: 'line', label: 'Linha' },
+                  { id: 'area', label: 'Área' },
+                  { id: 'pie', label: 'Pizza' },
+                  { id: 'donut', label: 'Donut' },
+                  { id: 'radar', label: 'Radar' },
+                ].map((c) => {
+                  const enabled = new Set(dashboardConfig.enabledChartTypes ?? [])
+                  const checked = enabled.has(c.id)
+                  return (
+                    <label key={c.id} className="status-chip">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const next = new Set(enabled)
+                          if (checked) next.delete(c.id)
+                          else next.add(c.id)
+                          updateDashboardConfigMutation.mutate({
+                            enabledChartTypes: Array.from(next),
+                          })
+                        }}
+                      />
+                      {c.label}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div style={{ gridColumn: '1 / -1' }}>
+              <p className="field-label">Tipos de gráfico disponíveis nos modais</p>
+              <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                Escolha quais visualizações aparecerão no botão de alternar (Tabela, Barras, Colunas, etc.) dentro dos modais de detalhe.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
+                {[
+                  { id: 'table', label: 'Tabela' },
+                  { id: 'bar', label: 'Barras' },
+                  { id: 'column', label: 'Colunas' },
+                  { id: 'line', label: 'Linha' },
+                  { id: 'area', label: 'Área' },
+                  { id: 'pie', label: 'Pizza' },
+                  { id: 'donut', label: 'Donut' },
+                  { id: 'radar', label: 'Radar' },
+                ].map((c) => {
+                  const enabled = new Set(dashboardConfig.enabledChartTypes ?? [])
+                  const checked = enabled.has(c.id)
+                  return (
+                    <label key={c.id} className="status-chip">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const next = new Set(enabled)
+                          if (checked) next.delete(c.id)
+                          else next.add(c.id)
+                          updateDashboardConfigMutation.mutate({
+                            enabledChartTypes: Array.from(next),
+                          })
+                        }}
+                      />
+                      {c.label}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div style={{ gridColumn: '1 / -1' }}>
+              <p className="field-label">Tipos de gráfico nos modais</p>
+              <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                Escolha quais visualizações exibir ao clicar nos cards de análise: Tabela, Barras, Colunas, Linha, Área, Pizza, Donut, Radar.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
+                {[
+                  { id: 'table', label: 'Tabela' },
+                  { id: 'bar', label: 'Barras' },
+                  { id: 'column', label: 'Colunas' },
+                  { id: 'line', label: 'Linha' },
+                  { id: 'area', label: 'Área' },
+                  { id: 'pie', label: 'Pizza' },
+                  { id: 'donut', label: 'Donut' },
+                  { id: 'radar', label: 'Radar' },
+                ].map((c) => {
+                  const enabled = new Set(dashboardConfig.enabledChartTypes ?? [])
+                  const checked = enabled.has(c.id)
+                  return (
+                    <label key={c.id} className="status-chip">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const next = new Set(enabled)
+                          if (checked) next.delete(c.id)
+                          else next.add(c.id)
+                          updateDashboardConfigMutation.mutate({
+                            enabledChartTypes: Array.from(next),
+                          })
+                        }}
+                      />
+                      {c.label}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
             {configSaved && <p className="success-text">Configurações salvas com sucesso.</p>}
           </div>
         ) : null}

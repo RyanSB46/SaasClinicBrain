@@ -13,3 +13,12 @@ client_secret*.json
 *credentials*.json
 credentials.json
 token.json
+*.pem
+*.key
+DATABASE.md
+pgadmin-*.json
+abrir-pgadmin-*.bat
+
+# Logs
+logs/
+npm-debug.log*

@@ -1,8 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchDashboardOverview, type DashboardOverview, type ReportFiltersParams } from '../../application/services/clinic-api'
+import { fetchDashboardConfig, fetchDashboardOverview, type DashboardOverview, type ReportFiltersParams } from '../../application/services/clinic-api'
 import { ErrorState, LoadingState } from '../components/feedback-states'
 import { AnimatedGrid, AnimatedGridItem, gridItemVariants } from '../components/animated-grid'
+import {
+  ChartToggle,
+  type ChartViewType,
+  getRankingAvailableViews,
+  getProportionAvailableViews,
+  PatientsInactiveChart,
+  PatientsTopConsultationsChart,
+  InteractionsPieChart,
+  AppointmentsByModePieChart,
+  AgendaOccupancyPieChart,
+  ReactivationPieChart,
+  ReschedulePieChart,
+  LoyaltyPieChart,
+} from '../components/dashboard-charts'
 
 function formatDateInput(value: Date): string {
   const year = value.getFullYear()
@@ -92,18 +106,28 @@ function DetailModal({
   kind,
   data,
   inactivityMonths,
+  enabledChartTypes,
   onClose,
 }: {
   kind: DetailModalKind
   data: DashboardOverview
   inactivityMonths: number
+  enabledChartTypes?: string[]
   onClose: () => void
 }) {
+  const [view, setView] = useState<ChartViewType>('table')
+  useEffect(() => {
+    setView('table')
+  }, [kind])
+
+  const rankingViews = getRankingAvailableViews(enabledChartTypes)
+  const proportionViews = getProportionAvailableViews(enabledChartTypes)
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <article className="card modal-card modal-card-large" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <h3 style={{ margin: 0 }}>
             {kind === 'patientsInactive' && `Pacientes sem consulta há ${inactivityMonths}+ meses`}
             {kind === 'patientsTopConsultations' && 'Top consultas no período'}
             {kind === 'patientsNew' && 'Novos pacientes no período'}
@@ -121,51 +145,67 @@ function DetailModal({
         </div>
 
         {kind === 'patientsInactive' && data.patientsInactive && data.patientsInactive.length > 0 && (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Paciente</th>
-                  <th>Telefone</th>
-                  <th>Última consulta</th>
-                  <th>Dias sem consultar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.patientsInactive.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.name}</td>
-                    <td>{p.phoneNumber}</td>
-                    <td>{p.lastConsultationAt ? new Date(p.lastConsultationAt).toLocaleDateString('pt-BR') : 'Nunca'}</td>
-                    <td>{p.daysSinceLastConsultation ?? '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <ChartToggle view={view} onViewChange={setView} availableViews={rankingViews} />
+            {view === 'table' && (
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Paciente</th>
+                      <th>Telefone</th>
+                      <th>Última consulta</th>
+                      <th>Dias sem consultar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.patientsInactive.map((p) => (
+                      <tr key={p.id}>
+                        <td>{p.name}</td>
+                        <td>{p.phoneNumber}</td>
+                        <td>{p.lastConsultationAt ? new Date(p.lastConsultationAt).toLocaleDateString('pt-BR') : 'Nunca'}</td>
+                        <td>{p.daysSinceLastConsultation ?? '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {rankingViews.includes(view) && view !== 'table' && (
+              <PatientsInactiveChart data={data.patientsInactive} variant={view as 'bar' | 'column' | 'line' | 'area'} />
+            )}
+          </>
         )}
 
         {kind === 'patientsTopConsultations' && data.patientsTopConsultations && data.patientsTopConsultations.length > 0 && (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Paciente</th>
-                  <th>Telefone</th>
-                  <th>Consultas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.patientsTopConsultations.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.name}</td>
-                    <td>{p.phoneNumber}</td>
-                    <td>{p.consultationCount}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <ChartToggle view={view} onViewChange={setView} availableViews={rankingViews} />
+            {view === 'table' && (
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Paciente</th>
+                      <th>Telefone</th>
+                      <th>Consultas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.patientsTopConsultations.map((p) => (
+                      <tr key={p.id}>
+                        <td>{p.name}</td>
+                        <td>{p.phoneNumber}</td>
+                        <td>{p.consultationCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {rankingViews.includes(view) && view !== 'table' && (
+              <PatientsTopConsultationsChart data={data.patientsTopConsultations} variant={view as 'bar' | 'column' | 'line' | 'area'} />
+            )}
+          </>
         )}
 
         {kind === 'patientsNew' && data.patientsNew && data.patientsNew.length > 0 && (
@@ -192,58 +232,106 @@ function DetailModal({
         )}
 
         {kind === 'reactivationRate' && data.reactivationRate && (
-          <div className="summary-grid" style={{ gap: '1rem' }}>
-            <p><strong>Total inativos:</strong> {data.reactivationRate.totalInactive}</p>
-            <p><strong>Retornaram no período:</strong> {data.reactivationRate.totalReturned}</p>
-            <p><strong>Taxa:</strong> {data.reactivationRate.reactivationRatePercent}%</p>
-            <p className="muted-text">Período: {new Date(data.reactivationRate.period.from).toLocaleDateString('pt-BR')} a {new Date(data.reactivationRate.period.to).toLocaleDateString('pt-BR')}</p>
-          </div>
+          <>
+            <ChartToggle view={view} onViewChange={setView} availableViews={proportionViews} />
+            {view === 'table' && (
+              <div className="summary-grid" style={{ gap: '1rem' }}>
+                <p><strong>Total inativos:</strong> {data.reactivationRate.totalInactive}</p>
+                <p><strong>Retornaram no período:</strong> {data.reactivationRate.totalReturned}</p>
+                <p><strong>Taxa:</strong> {data.reactivationRate.reactivationRatePercent}%</p>
+                <p className="muted-text">Período: {new Date(data.reactivationRate.period.from).toLocaleDateString('pt-BR')} a {new Date(data.reactivationRate.period.to).toLocaleDateString('pt-BR')}</p>
+              </div>
+            )}
+            {proportionViews.includes(view) && view !== 'table' && (
+              <ReactivationPieChart data={data.reactivationRate} variant={view as 'pie' | 'donut' | 'radar' | 'bar' | 'column'} />
+            )}
+          </>
         )}
 
         {kind === 'loyaltyRate' && data.loyaltyRate && (
-          <div className="summary-grid" style={{ gap: '1rem' }}>
-            <p><strong>Total de consultas:</strong> {data.loyaltyRate.totalConsultations}</p>
-            <p><strong>Pacientes com 2+ consultas:</strong> {data.loyaltyRate.loyalPatientsCount}</p>
-            <p><strong>Taxa de fidelidade:</strong> {data.loyaltyRate.loyaltyRatePercent}%</p>
-            <p className="muted-text">Período: {new Date(data.loyaltyRate.period.from).toLocaleDateString('pt-BR')} a {new Date(data.loyaltyRate.period.to).toLocaleDateString('pt-BR')}</p>
-          </div>
+          <>
+            <ChartToggle view={view} onViewChange={setView} availableViews={proportionViews} />
+            {view === 'table' && (
+              <div className="summary-grid" style={{ gap: '1rem' }}>
+                <p><strong>Total de consultas:</strong> {data.loyaltyRate.totalConsultations}</p>
+                <p><strong>Pacientes com 2+ consultas:</strong> {data.loyaltyRate.loyalPatientsCount}</p>
+                <p><strong>Taxa de fidelidade:</strong> {data.loyaltyRate.loyaltyRatePercent}%</p>
+                <p className="muted-text">Período: {new Date(data.loyaltyRate.period.from).toLocaleDateString('pt-BR')} a {new Date(data.loyaltyRate.period.to).toLocaleDateString('pt-BR')}</p>
+              </div>
+            )}
+            {proportionViews.includes(view) && view !== 'table' && (
+              <LoyaltyPieChart data={data.loyaltyRate} variant={view as 'pie' | 'donut' | 'radar' | 'bar' | 'column'} />
+            )}
+          </>
         )}
 
         {kind === 'rescheduleRate' && data.rescheduleRate && (
-          <div className="summary-grid" style={{ gap: '1rem' }}>
-            <p><strong>Total de agendamentos:</strong> {data.rescheduleRate.totalAppointments}</p>
-            <p><strong>Remarcações:</strong> {data.rescheduleRate.rescheduledCount}</p>
-            <p><strong>Taxa:</strong> {data.rescheduleRate.rescheduleRatePercent}%</p>
-            <p className="muted-text">Período: {new Date(data.rescheduleRate.period.from).toLocaleDateString('pt-BR')} a {new Date(data.rescheduleRate.period.to).toLocaleDateString('pt-BR')}</p>
-          </div>
+          <>
+            <ChartToggle view={view} onViewChange={setView} availableViews={proportionViews} />
+            {view === 'table' && (
+              <div className="summary-grid" style={{ gap: '1rem' }}>
+                <p><strong>Total de agendamentos:</strong> {data.rescheduleRate.totalAppointments}</p>
+                <p><strong>Remarcações:</strong> {data.rescheduleRate.rescheduledCount}</p>
+                <p><strong>Taxa:</strong> {data.rescheduleRate.rescheduleRatePercent}%</p>
+                <p className="muted-text">Período: {new Date(data.rescheduleRate.period.from).toLocaleDateString('pt-BR')} a {new Date(data.rescheduleRate.period.to).toLocaleDateString('pt-BR')}</p>
+              </div>
+            )}
+            {proportionViews.includes(view) && view !== 'table' && (
+              <ReschedulePieChart data={data.rescheduleRate} variant={view as 'pie' | 'donut' | 'radar' | 'bar' | 'column'} />
+            )}
+          </>
         )}
 
         {kind === 'interactionsSummary' && data.interactionsSummary && (
-          <div className="summary-grid" style={{ gap: '1rem' }}>
-            <p><strong>Bot:</strong> {data.interactionsSummary.byType.BOT}</p>
-            <p><strong>Humano:</strong> {data.interactionsSummary.byType.HUMANO}</p>
-            <p><strong>Paciente:</strong> {data.interactionsSummary.byType.PACIENTE}</p>
-            <p><strong>Total:</strong> {data.interactionsSummary.total}</p>
-            <p className="muted-text">Período: {new Date(data.interactionsSummary.period.from).toLocaleDateString('pt-BR')} a {new Date(data.interactionsSummary.period.to).toLocaleDateString('pt-BR')}</p>
-          </div>
+          <>
+            <ChartToggle view={view} onViewChange={setView} availableViews={proportionViews} />
+            {view === 'table' && (
+              <div className="summary-grid" style={{ gap: '1rem' }}>
+                <p><strong>Bot:</strong> {data.interactionsSummary.byType.BOT}</p>
+                <p><strong>Humano:</strong> {data.interactionsSummary.byType.HUMANO}</p>
+                <p><strong>Paciente:</strong> {data.interactionsSummary.byType.PACIENTE}</p>
+                <p><strong>Total:</strong> {data.interactionsSummary.total}</p>
+                <p className="muted-text">Período: {new Date(data.interactionsSummary.period.from).toLocaleDateString('pt-BR')} a {new Date(data.interactionsSummary.period.to).toLocaleDateString('pt-BR')}</p>
+              </div>
+            )}
+            {proportionViews.includes(view) && view !== 'table' && (
+              <InteractionsPieChart data={data.interactionsSummary} variant={view as 'pie' | 'donut' | 'radar' | 'bar' | 'column'} />
+            )}
+          </>
         )}
 
         {kind === 'agendaOccupancy' && data.agendaOccupancy && (
-          <div className="summary-grid" style={{ gap: '1rem' }}>
-            <p><strong>Consultas realizadas:</strong> {data.agendaOccupancy.realizedAppointments}</p>
-            <p><strong>Total agendado:</strong> {data.agendaOccupancy.totalAppointments}</p>
-            <p><strong>Taxa de ocupação:</strong> {data.agendaOccupancy.occupancyRatePercent}%</p>
-            <p className="muted-text">Período: {new Date(data.agendaOccupancy.period.from).toLocaleDateString('pt-BR')} a {new Date(data.agendaOccupancy.period.to).toLocaleDateString('pt-BR')}</p>
-          </div>
+          <>
+            <ChartToggle view={view} onViewChange={setView} availableViews={proportionViews} />
+            {view === 'table' && (
+              <div className="summary-grid" style={{ gap: '1rem' }}>
+                <p><strong>Consultas realizadas:</strong> {data.agendaOccupancy.realizedAppointments}</p>
+                <p><strong>Total agendado:</strong> {data.agendaOccupancy.totalAppointments}</p>
+                <p><strong>Taxa de ocupação:</strong> {data.agendaOccupancy.occupancyRatePercent}%</p>
+                <p className="muted-text">Período: {new Date(data.agendaOccupancy.period.from).toLocaleDateString('pt-BR')} a {new Date(data.agendaOccupancy.period.to).toLocaleDateString('pt-BR')}</p>
+              </div>
+            )}
+            {proportionViews.includes(view) && view !== 'table' && (
+              <AgendaOccupancyPieChart data={data.agendaOccupancy} variant={view as 'pie' | 'donut' | 'radar' | 'bar' | 'column'} />
+            )}
+          </>
         )}
 
         {kind === 'appointmentsByMode' && data.appointmentsByMode && (
-          <div className="summary-grid" style={{ gap: '1rem' }}>
-            <p><strong>Presencial:</strong> {data.appointmentsByMode.byMode.PRESENCIAL}</p>
-            <p><strong>Remoto:</strong> {data.appointmentsByMode.byMode.REMOTO}</p>
-            <p><strong>Total:</strong> {data.appointmentsByMode.total}</p>
-            <p className="muted-text">Período: {new Date(data.appointmentsByMode.period.from).toLocaleDateString('pt-BR')} a {new Date(data.appointmentsByMode.period.to).toLocaleDateString('pt-BR')}</p>
-          </div>
+          <>
+            <ChartToggle view={view} onViewChange={setView} availableViews={proportionViews} />
+            {view === 'table' && (
+              <div className="summary-grid" style={{ gap: '1rem' }}>
+                <p><strong>Presencial:</strong> {data.appointmentsByMode.byMode.PRESENCIAL}</p>
+                <p><strong>Remoto:</strong> {data.appointmentsByMode.byMode.REMOTO}</p>
+                <p><strong>Total:</strong> {data.appointmentsByMode.total}</p>
+                <p className="muted-text">Período: {new Date(data.appointmentsByMode.period.from).toLocaleDateString('pt-BR')} a {new Date(data.appointmentsByMode.period.to).toLocaleDateString('pt-BR')}</p>
+              </div>
+            )}
+            {proportionViews.includes(view) && view !== 'table' && (
+              <AppointmentsByModePieChart data={data.appointmentsByMode} variant={view as 'pie' | 'donut' | 'radar' | 'bar' | 'column'} />
+            )}
+          </>
         )}
 
         {kind === 'averageConsultationMinutes' && data.averageConsultationMinutes && (
@@ -276,6 +364,11 @@ export function DashboardPage() {
   const overviewQuery = useQuery({
     queryKey: ['dashboard-overview', params],
     queryFn: () => fetchDashboardOverview(params),
+  })
+
+  const configQuery = useQuery({
+    queryKey: ['dashboard-config'],
+    queryFn: fetchDashboardConfig,
   })
 
   if (overviewQuery.isLoading) {
@@ -326,6 +419,7 @@ export function DashboardPage() {
           kind={detailModal}
           data={data}
           inactivityMonths={inactivityMonths}
+          enabledChartTypes={configQuery.data?.enabledChartTypes}
           onClose={() => setDetailModal(null)}
         />
       )}
