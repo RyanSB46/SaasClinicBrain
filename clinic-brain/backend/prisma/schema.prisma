@@ -125,6 +125,8 @@ model Patient {
   name               String
   phoneNumber        String         @map("phone_number")
   email              String?
+  cpf                String?        @map("cpf")
+  notes              String?        @map("notes")
   firstConsultationAt DateTime?     @map("first_consultation_at") @db.Timestamptz(3)
   status             PatientStatus  @default(ATIVO)
   createdAt          DateTime       @default(now()) @map("created_at")

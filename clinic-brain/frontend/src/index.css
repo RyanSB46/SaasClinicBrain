@@ -554,6 +554,7 @@ p {
   overflow: auto;
 }
 
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -575,6 +576,14 @@ tr:hover td {
 th {
   color: var(--table-head);
   font-weight: 700;
+}
+
+.th-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.th-sortable:hover {
+  color: var(--primary-btn-bg);
 }
 
 .muted-text {

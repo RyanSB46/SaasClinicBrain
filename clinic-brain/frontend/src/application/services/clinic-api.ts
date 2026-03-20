@@ -147,6 +147,8 @@ export type PatientListItem = {
   name: string
   phoneNumber: string
   email?: string | null
+  cpf?: string | null
+  notes?: string | null
   status: 'ATIVO' | 'INATIVO'
   createdAt: string
 }
@@ -744,8 +746,22 @@ export function fetchPatients() {
   return apiRequest<PatientListItem[]>('/patients', 'GET')
 }
 
-export function createPatient(input: { name: string; phoneNumber: string; email?: string }) {
+export type CreatePatientInput = {
+  name: string
+  phoneNumber: string
+  email?: string
+  cpf?: string
+  notes?: string
+}
+
+export type UpdatePatientInput = Partial<CreatePatientInput> & { status?: 'ATIVO' | 'INATIVO' }
+
+export function createPatient(input: CreatePatientInput) {
   return apiRequest<PatientListItem>('/patients', 'POST', input)
+}
+
+export function updatePatient(id: string, input: UpdatePatientInput) {
+  return apiRequest<PatientListItem>(`/patients/${id}`, 'PATCH', input)
 }
 
 export function fetchSettingsMessages() {
