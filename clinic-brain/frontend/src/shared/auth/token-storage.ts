@@ -1,6 +1,22 @@
 const ACCESS_TOKEN_KEY = 'clinic_brain_access_token'
 
 /**
+ * Sessão por aba: cada aba tem o seu token, para poder usar duas contas ao mesmo tempo.
+ * Migra uma vez do localStorage legado (evita logout ao atualizar quem ainda tinha token antigo).
+ */
+function migrateLegacyLocalStorageToken(): void {
+  try {
+    if (sessionStorage.getItem(ACCESS_TOKEN_KEY)) return
+    const legacy = localStorage.getItem(ACCESS_TOKEN_KEY)
+    if (!legacy) return
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, legacy)
+    localStorage.removeItem(ACCESS_TOKEN_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * Verifica se o token JWT está expirado (claim exp em segundos).
  */
 function isTokenExpired(token: string): boolean {
@@ -21,9 +37,11 @@ function isTokenExpired(token: string): boolean {
  */
 export function getValidAccessToken(): string | null {
   try {
-    const token = localStorage.getItem(ACCESS_TOKEN_KEY)
+    migrateLegacyLocalStorageToken()
+    const token = sessionStorage.getItem(ACCESS_TOKEN_KEY)
     if (!token) return null
     if (isTokenExpired(token)) {
+      sessionStorage.removeItem(ACCESS_TOKEN_KEY)
       localStorage.removeItem(ACCESS_TOKEN_KEY)
       return null
     }
@@ -34,11 +52,12 @@ export function getValidAccessToken(): string | null {
 }
 
 /**
- * Usa localStorage para persistir o token entre abas e reinícios do navegador.
+ * Token da aba atual (pode estar expirado). Usa sessionStorage — não é compartilhado entre abas.
  */
 export function getAccessToken(): string | null {
   try {
-    return localStorage.getItem(ACCESS_TOKEN_KEY)
+    migrateLegacyLocalStorageToken()
+    return sessionStorage.getItem(ACCESS_TOKEN_KEY)
   } catch {
     return null
   }
@@ -46,7 +65,9 @@ export function getAccessToken(): string | null {
 
 export function setAccessToken(token: string): void {
   try {
-    localStorage.setItem(ACCESS_TOKEN_KEY, token)
+    migrateLegacyLocalStorageToken()
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, token)
+    localStorage.removeItem(ACCESS_TOKEN_KEY)
   } catch {
     return
   }
@@ -54,6 +75,7 @@ export function setAccessToken(token: string): void {
 
 export function clearAccessToken(): void {
   try {
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY)
     localStorage.removeItem(ACCESS_TOKEN_KEY)
   } catch {
     return

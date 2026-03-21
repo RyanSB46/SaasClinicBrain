@@ -11,6 +11,7 @@ import {
   fetchAppointments,
   fetchPatients,
 } from '../../application/services/clinic-api'
+import { getAgendaRulesShortLabel, getManualSlotHourOptions } from '../../shared/agenda/agenda-rules'
 import { EmptyState, ErrorState, LoadingState } from '../components/feedback-states'
 
 type StatusFilter = AppointmentListItem['status']
@@ -266,10 +267,63 @@ function toHourInputValue(date: Date): string {
   return `${hours}:00`
 }
 
-const MANUAL_HOUR_OPTIONS = Array.from({ length: 10 }, (_, index) => {
-  const hour = 8 + index
-  return `${String(hour).padStart(2, '0')}:00`
-})
+const MANUAL_HOUR_OPTIONS = getManualSlotHourOptions()
+
+function isSameCalendarDate(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  )
+}
+
+function getCalendarDayTone(
+  appointments: AppointmentListItem[],
+  dayKey: string,
+): 'active' | 'mixed' | 'closed' | null {
+  const dayAppts = appointments.filter((item) => toCalendarDayKey(new Date(item.startsAt)) === dayKey)
+  if (dayAppts.length === 0) {
+    return null
+  }
+
+  const hasActive = dayAppts.some((item) => item.status === 'AGENDADO' || item.status === 'CONFIRMADO')
+  if (hasActive) {
+    return 'active'
+  }
+
+  const hasRemarcado = dayAppts.some((item) => item.status === 'REMARCADO')
+  if (hasRemarcado) {
+    return 'mixed'
+  }
+
+  return 'closed'
+}
+
+function escapeCsvField(value: string): string {
+  return `"${String(value).replace(/"/g, '""')}"`
+}
+
+function downloadAgendaCsv(appointments: AppointmentListItem[]): void {
+  const headers = ['Paciente', 'Telefone', 'Data', 'Horario', 'Status', 'Modo']
+  const rows = appointments.map((a) => {
+    const phone = a.patient.phoneNumber ?? ''
+    return [
+      escapeCsvField(a.patient.name),
+      escapeCsvField(phone),
+      escapeCsvField(formatDate(a.startsAt)),
+      escapeCsvField(formatTimeRange(a.startsAt, a.endsAt)),
+      escapeCsvField(formatStatus(a.status)),
+      escapeCsvField(a.mode === 'REMOTO' ? 'Remoto' : 'Presencial'),
+    ].join(',')
+  })
+
+  const csv = '\ufeff' + [headers.join(','), ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `agenda-filtrada-${toDateInputValue(new Date())}.csv`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
 
 function actionLabel(action: ManualAction): string {
   if (action === 'BOOK') {
@@ -355,6 +409,7 @@ export function AgendaPage() {
     REMARCADO: true,
     FALTOU: true,
   })
+  const [listPage, setListPage] = useState(1)
 
   const appointmentsQuery = useQuery({
     queryKey: ['appointments'],
@@ -489,7 +544,9 @@ export function AgendaPage() {
     }
 
     const selectedKey = toCalendarDayKey(selectedCalendarDate)
-    return filteredAppointments.filter((appointment) => toCalendarDayKey(new Date(appointment.startsAt)) === selectedKey)
+    return filteredAppointments
+      .filter((appointment) => toCalendarDayKey(new Date(appointment.startsAt)) === selectedKey)
+      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
   }, [filteredAppointments, selectedCalendarDate])
 
   const summary = useMemo(() => {
@@ -508,6 +565,53 @@ export function AgendaPage() {
 
     return counts
   }, [filteredAppointments])
+
+  const filterFingerprint = useMemo(
+    () =>
+      `${periodFilter}|${shiftFilter}|${patientQuery}|${fromDate}|${toDate}|${JSON.stringify(statusFilters)}`,
+    [periodFilter, shiftFilter, patientQuery, fromDate, toDate, statusFilters],
+  )
+
+  useEffect(() => {
+    setListPage(1)
+  }, [filterFingerprint])
+
+  const sortedFilteredAppointments = useMemo(() => {
+    return [...filteredAppointments].sort(
+      (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+    )
+  }, [filteredAppointments])
+
+  const LIST_PAGE_SIZE = 15
+  const listTotalPages = Math.max(1, Math.ceil(sortedFilteredAppointments.length / LIST_PAGE_SIZE))
+
+  useEffect(() => {
+    if (listPage > listTotalPages) {
+      setListPage(listTotalPages)
+    }
+  }, [listPage, listTotalPages])
+
+  const paginatedAppointments = useMemo(() => {
+    const start = (listPage - 1) * LIST_PAGE_SIZE
+    return sortedFilteredAppointments.slice(start, start + LIST_PAGE_SIZE)
+  }, [sortedFilteredAppointments, listPage])
+
+  const todayFilteredAppointments = useMemo(() => {
+    const today = new Date()
+    const key = toCalendarDayKey(today)
+    return filteredAppointments
+      .filter((item) => toCalendarDayKey(new Date(item.startsAt)) === key)
+      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+  }, [filteredAppointments])
+
+  const nextUpcomingAppointment = useMemo(() => {
+    const threshold = Date.now()
+    const list = (appointmentsQuery.data ?? [])
+      .filter((item) => item.status === 'AGENDADO' || item.status === 'CONFIRMADO')
+      .filter((item) => new Date(item.startsAt).getTime() >= threshold)
+      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+    return list[0] ?? null
+  }, [appointmentsQuery.data])
 
   const activeAppointments = useMemo(() => {
     const nowDate = Date.now()
@@ -627,6 +731,13 @@ export function AgendaPage() {
     setCalendarReferenceDate((current) => new Date(current.getFullYear(), current.getMonth() + monthOffset, 1))
   }
 
+  function handleGoToToday() {
+    const today = new Date()
+    const normalized = toDateOnly(today)
+    setCalendarReferenceDate(new Date(today.getFullYear(), today.getMonth(), 1))
+    setSelectedCalendarDate(normalized)
+  }
+
   function handleSelectedCalendarDayChange(dayOffset: number) {
     setSelectedCalendarDate((current) => {
       if (!current) {
@@ -727,16 +838,128 @@ export function AgendaPage() {
     )
   }
 
-  const appointments = filteredAppointments
-
   return (
     <section className="agenda-grid">
-      <article className="card">
-        <h3>Calendário simples</h3>
-        <p className="muted-text">Visualização mensal com contagem conforme filtros aplicados.</p>
+      <div className="agenda-insight-grid">
+        <article className="card agenda-insight-card">
+          <h4>Próxima consulta</h4>
+          {nextUpcomingAppointment ? (
+            <>
+              <div className="agenda-insight-card-body">
+                <p className="agenda-insight-highlight">{nextUpcomingAppointment.patient.name}</p>
+                <div className="agenda-insight-badges">
+                  <span
+                    className={`agenda-insight-badge${
+                      nextUpcomingAppointment.status === 'CONFIRMADO' || nextUpcomingAppointment.status === 'AGENDADO'
+                        ? ' agenda-insight-badge--accent'
+                        : ''
+                    }`}
+                  >
+                    {formatStatus(nextUpcomingAppointment.status)}
+                  </span>
+                  <span className="agenda-insight-badge">
+                    {nextUpcomingAppointment.mode === 'REMOTO' ? 'Remoto' : 'Presencial'}
+                  </span>
+                </div>
+                <p className="agenda-insight-sub">{formatDateTime(nextUpcomingAppointment.startsAt)}</p>
+              </div>
+              <div className="agenda-insight-actions">
+                <button type="button" className="secondary-button" onClick={() => setSelectedAppointment(nextUpcomingAppointment)}>
+                  Detalhes
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    const start = new Date(nextUpcomingAppointment.startsAt)
+                    setSelectedCalendarDate(toDateOnly(start))
+                    setCalendarReferenceDate(new Date(start.getFullYear(), start.getMonth(), 1))
+                  }}
+                >
+                  No calendário
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="agenda-insight-card-body">
+                <p className="agenda-insight-sub">Nenhuma consulta futura agendada ou confirmada.</p>
+              </div>
+              <div className="agenda-insight-footer-spacer" aria-hidden="true" />
+            </>
+          )}
+        </article>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <article className="card agenda-insight-card">
+          <h4>Hoje</h4>
+          <div className="agenda-insight-card-body">
+            <p className="agenda-insight-meta">Respeita os filtros ativos da agenda.</p>
+            {todayFilteredAppointments.length === 0 ? (
+              <p className="agenda-insight-sub">Nenhuma consulta neste dia com os filtros aplicados.</p>
+            ) : (
+              <ul className="agenda-insight-list">
+                {todayFilteredAppointments.slice(0, 8).map((item) => (
+                  <li key={`today-${item.id}`}>
+                    <strong>{formatTimeRange(item.startsAt, item.endsAt)}</strong> — {item.patient.name} (
+                    {formatStatus(item.status)})
+                  </li>
+                ))}
+              </ul>
+            )}
+            {todayFilteredAppointments.length > 8 ? (
+              <p className="agenda-insight-sub agenda-insight-sub--tight-top">
+                +{todayFilteredAppointments.length - 8} outra(s) — veja a lista completa abaixo.
+              </p>
+            ) : null}
+          </div>
+          <div className="agenda-insight-actions">
+            <button type="button" className="secondary-button" onClick={handleGoToToday}>
+              Ir ao dia
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setPeriodFilter('TODAY')
+                setIsFilterOpen(true)
+              }}
+            >
+              Só hoje
+            </button>
+          </div>
+        </article>
+      </div>
+
+      <article className="card">
+        <h3>Visão mensal</h3>
+        <p className="muted-text">Calendário com contagem por dia, alinhada aos filtros ativos.</p>
+
+        <div className="agenda-summary-chips" aria-label="Resumo filtrado">
+          <span className="agenda-summary-chip">
+            Total <strong>{summary.total}</strong>
+          </span>
+          <span className="agenda-summary-chip">
+            Agend. <strong>{summary.AGENDADO}</strong>
+          </span>
+          <span className="agenda-summary-chip">
+            Conf. <strong>{summary.CONFIRMADO}</strong>
+          </span>
+          <span className="agenda-summary-chip">
+            Remarc. <strong>{summary.REMARCADO}</strong>
+          </span>
+          <span className="agenda-summary-chip">
+            Canc. <strong>{summary.CANCELADO}</strong>
+          </span>
+          <span className="agenda-summary-chip">
+            Faltas <strong>{summary.FALTOU}</strong>
+          </span>
+        </div>
+        <p className="muted-text" style={{ marginTop: '10px', fontSize: '0.8rem' }}>
+          Cores no calendário: azul = há consultas ativas; âmbar = só remarcações; cinza = canceladas/faltas.
+        </p>
+
+        <div className="agenda-toolbar">
+          <div className="agenda-toolbar-actions">
             <button type="button" className="secondary-button" onClick={() => setIsFilterOpen(true)}>
               Filtros e relatório
             </button>
@@ -752,17 +975,21 @@ export function AgendaPage() {
               Configurar agenda
             </button>
           </div>
-          <p className="muted-text">Total filtrado: {summary.total}</p>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+        <div className="agenda-calendar-toolbar">
           <button type="button" className="secondary-button" onClick={() => handleCalendarMonthChange(-1)}>
             ← Mês anterior
           </button>
-          <strong style={{ textTransform: 'capitalize' }}>{formatMonthYear(calendarReferenceDate)}</strong>
-          <button type="button" className="secondary-button" onClick={() => handleCalendarMonthChange(1)}>
-            Próximo mês →
-          </button>
+          <strong className="agenda-calendar-toolbar-month">{formatMonthYear(calendarReferenceDate)}</strong>
+          <div className="agenda-toolbar-actions">
+            <button type="button" className="secondary-button" onClick={handleGoToToday}>
+              Hoje
+            </button>
+            <button type="button" className="secondary-button" onClick={() => handleCalendarMonthChange(1)}>
+              Próximo mês →
+            </button>
+          </div>
         </div>
 
         <div className="calendar-grid">
@@ -780,28 +1007,27 @@ export function AgendaPage() {
               date.getFullYear() === calendarReferenceDate.getFullYear()
             const isSelectedDay =
               selectedCalendarDate !== null && toCalendarDayKey(selectedCalendarDate) === key
+            const tone = count > 0 ? getCalendarDayTone(filteredAppointments, key) : null
+            const toneClass =
+              tone === 'active'
+                ? ' calendar-cell-tone-active'
+                : tone === 'mixed'
+                  ? ' calendar-cell-tone-mixed'
+                  : tone === 'closed'
+                    ? ' calendar-cell-tone-closed'
+                    : ''
+            const isTodayCell = isSameCalendarDate(date, new Date())
 
             return (
-              <div
+              <button
                 key={key}
-                className={isCurrentMonth ? 'calendar-cell' : 'calendar-cell calendar-cell-muted'}
-                role="button"
-                tabIndex={0}
+                type="button"
+                className={`calendar-cell calendar-cell-btn${isCurrentMonth ? '' : ' calendar-cell-muted'}${toneClass}${isTodayCell ? ' calendar-cell--today' : ''}${isSelectedDay ? ' calendar-cell--selected' : ''}`}
                 onClick={() => handleCalendarDayClick(date)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    handleCalendarDayClick(date)
-                  }
-                }}
-                style={{
-                  cursor: 'pointer',
-                  outline: isSelectedDay ? '2px solid #2563eb' : undefined,
-                }}
               >
                 <span>{date.getDate()}</span>
-                {count > 0 && <small>{count} consulta(s)</small>}
-              </div>
+                {count > 0 ? <small>{count} consulta(s)</small> : null}
+              </button>
             )
           })}
         </div>
@@ -913,7 +1139,7 @@ export function AgendaPage() {
           {(manualAction === 'BOOK' || manualAction === 'RESCHEDULE') && (
             <div>
               <span className="field-label">Tipo de consulta</span>
-              <div style={{ display: 'flex', gap: '16px', marginTop: '4px' }}>
+              <div className="agenda-manual-mode-row">
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                   <input
                     type="radio"
@@ -1017,9 +1243,7 @@ export function AgendaPage() {
             </div>
           )}
 
-          <p className="muted-text">
-            Regras aplicadas: apenas dias úteis, horários entre 08:00 e 18:00 e duração de 50 minutos por consulta.
-          </p>
+          <p className="muted-text">Regras aplicadas pelo sistema: {getAgendaRulesShortLabel()}</p>
 
           {manualFeedback ? (
             <p className={manualFeedbackIsWarning ? 'error-text' : 'success-text'}>{manualFeedback}</p>
@@ -1035,57 +1259,83 @@ export function AgendaPage() {
 
       <article className="card">
         <h3>Lista de agendamentos</h3>
-        {appointments.length === 0 ? (
-          <EmptyState message="Nenhum agendamento cadastrado até o momento." />
+        <p className="muted-text">Ordenação por data e horário. Use os filtros para refinar a lista.</p>
+        {sortedFilteredAppointments.length === 0 ? (
+          <EmptyState message="Nenhum agendamento nesta visualização. Ajuste os filtros ou o período." />
         ) : (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Paciente</th>
-                  <th>Data da consulta</th>
-                  <th>Horário</th>
-                  <th>Status</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {appointments.map((appointment) => {
-                  return (
-                    <tr key={appointment.id}>
-                      <td>{appointment.patient.name}</td>
-                      <td>{formatDate(appointment.startsAt)}</td>
-                      <td>{formatTimeRange(appointment.startsAt, appointment.endsAt)}</td>
-                      <td>{formatStatus(appointment.status)}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() => setSelectedAppointment(appointment)}
-                        >
-                          Detalhes
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Paciente</th>
+                    <th>Data da consulta</th>
+                    <th>Horário</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedAppointments.map((appointment) => {
+                    return (
+                      <tr key={appointment.id}>
+                        <td>{appointment.patient.name}</td>
+                        <td>{formatDate(appointment.startsAt)}</td>
+                        <td>{formatTimeRange(appointment.startsAt, appointment.endsAt)}</td>
+                        <td>{formatStatus(appointment.status)}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => setSelectedAppointment(appointment)}
+                          >
+                            Detalhes
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="agenda-pagination">
+              <span>
+                Página {listPage} de {listTotalPages} · {sortedFilteredAppointments.length} registro(s)
+              </span>
+              <div className="agenda-toolbar-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={listPage <= 1}
+                  onClick={() => setListPage((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={listPage >= listTotalPages}
+                  onClick={() => setListPage((p) => Math.min(listTotalPages, p + 1))}
+                >
+                  Próxima
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </article>
 
       {selectedCalendarDate && (
         <div className="modal-backdrop" onClick={() => setSelectedCalendarDate(null)}>
           <article className="card modal-card modal-card-large" onClick={(event) => event.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
-              <h3 style={{ textTransform: 'capitalize' }}>{formatLongDate(selectedCalendarDate)}</h3>
+            <div className="agenda-day-modal-header">
+              <h3 className="agenda-day-modal-title">{formatLongDate(selectedCalendarDate)}</h3>
               <button type="button" className="secondary-button" onClick={() => setSelectedCalendarDate(null)}>
                 Fechar
               </button>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+            <div className="agenda-modal-actions-row">
               <button
                 type="button"
                 className="secondary-button"
@@ -1112,6 +1362,7 @@ export function AgendaPage() {
                       <th>Paciente</th>
                       <th>Horário</th>
                       <th>Status</th>
+                      <th>Ações</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1120,6 +1371,18 @@ export function AgendaPage() {
                         <td>{appointment.patient.name}</td>
                         <td>{formatTimeRange(appointment.startsAt, appointment.endsAt)}</td>
                         <td>{formatStatus(appointment.status)}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => {
+                              setSelectedCalendarDate(null)
+                              setSelectedAppointment(appointment)
+                            }}
+                          >
+                            Detalhes
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1287,30 +1550,40 @@ export function AgendaPage() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+            <div className="agenda-filter-modal-footer">
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => {
-                  setPeriodFilter('THIS_MONTH')
-                  setShiftFilter('ALL')
-                  setPatientQuery('')
-                  setStatusFilters({
-                    AGENDADO: true,
-                    CONFIRMADO: true,
-                    CANCELADO: true,
-                    REMARCADO: true,
-                    FALTOU: true,
-                  })
-                  setFromDate(toDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1)))
-                  setToDate(toDateInputValue(new Date(now.getFullYear(), now.getMonth() + 1, 0)))
-                }}
+                onClick={() => downloadAgendaCsv(sortedFilteredAppointments)}
+                disabled={sortedFilteredAppointments.length === 0}
               >
-                Limpar filtros
+                Exportar CSV
               </button>
-              <button type="button" className="primary-button" onClick={() => setIsFilterOpen(false)}>
-                Aplicar e fechar
-              </button>
+              <div className="agenda-toolbar-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setPeriodFilter('THIS_MONTH')
+                    setShiftFilter('ALL')
+                    setPatientQuery('')
+                    setStatusFilters({
+                      AGENDADO: true,
+                      CONFIRMADO: true,
+                      CANCELADO: true,
+                      REMARCADO: true,
+                      FALTOU: true,
+                    })
+                    setFromDate(toDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1)))
+                    setToDate(toDateInputValue(new Date(now.getFullYear(), now.getMonth() + 1, 0)))
+                  }}
+                >
+                  Limpar filtros
+                </button>
+                <button type="button" className="primary-button" onClick={() => setIsFilterOpen(false)}>
+                  Aplicar e fechar
+                </button>
+              </div>
             </div>
           </article>
         </div>

@@ -11,6 +11,7 @@ import { PatientPortalPage } from './pages/patient-portal-page'
 import { PatientRequestsPage } from './pages/patient-requests-page'
 import { AdminPanelPage } from './pages/admin-panel-page'
 import { AnimatedPage } from './components/animated-page'
+import { SidebarThemeToggle } from './components/sidebar-theme-toggle'
 import { clearAccessToken, getValidAccessToken, setAccessToken } from '../shared/auth/token-storage'
 import {
   DEFAULT_PROFESSIONAL_FEATURE_FLAGS,
@@ -138,16 +139,19 @@ export function ClinicApp() {
           <h1 className="sidebar-title">Clinic Brain</h1>
           <p className="sidebar-subtitle">Painel admin técnico</p>
 
-          <button
-            type="button"
-            className="logout-button"
-            onClick={() => {
-              clearAccessToken()
-              setToken(null)
-            }}
-          >
-            Sair
-          </button>
+          <div className="sidebar-footer">
+            <SidebarThemeToggle />
+            <button
+              type="button"
+              className="logout-button"
+              onClick={() => {
+                clearAccessToken()
+                setToken(null)
+              }}
+            >
+              Sair
+            </button>
+          </div>
         </aside>
 
         <main className="content-area">
@@ -182,16 +186,19 @@ export function ClinicApp() {
           ))}
         </nav>
 
-        <button
-          type="button"
-          className="logout-button"
-          onClick={() => {
-            clearAccessToken()
-            setToken(null)
-          }}
-        >
-          Sair
-        </button>
+        <div className="sidebar-footer">
+          <SidebarThemeToggle />
+          <button
+            type="button"
+            className="logout-button"
+            onClick={() => {
+              clearAccessToken()
+              setToken(null)
+            }}
+          >
+            Sair
+          </button>
+        </div>
       </aside>
 
       <main className="content-area">

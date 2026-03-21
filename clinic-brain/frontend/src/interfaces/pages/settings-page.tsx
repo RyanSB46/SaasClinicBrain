@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   clearAllPatientData,
@@ -19,12 +18,60 @@ import {
   type ReportConfig,
 } from '../../application/services/clinic-api'
 import { ErrorState, LoadingState } from '../components/feedback-states'
-import {
-  applyThemePreference,
-  resolveInitialThemePreference,
-  saveThemePreference,
-  type ThemePreference,
-} from '../../shared/theme/theme-preference'
+
+type SettingsAccordionProps = {
+  sectionKey: string
+  title: string
+  description: string
+  expanded: Set<string>
+  onToggle: (key: string) => void
+  children: ReactNode
+}
+
+function SettingsAccordionSection({
+  sectionKey,
+  title,
+  description,
+  expanded,
+  onToggle,
+  children,
+}: SettingsAccordionProps) {
+  const isOpen = expanded.has(sectionKey)
+  return (
+    <article className="card settings-accordion">
+      <button
+        type="button"
+        className="settings-accordion-trigger"
+        aria-expanded={isOpen}
+        aria-controls={`settings-panel-${sectionKey}`}
+        id={`settings-head-${sectionKey}`}
+        onClick={() => onToggle(sectionKey)}
+      >
+        <span className="settings-accordion-trigger-text">
+          <span className="settings-accordion-title">{title}</span>
+          {isOpen ? <span className="settings-accordion-desc">{description}</span> : null}
+        </span>
+        <span
+          className={`settings-accordion-chevron${isOpen ? ' settings-accordion-chevron-open' : ''}`}
+          aria-hidden
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      </button>
+      <div
+        id={`settings-panel-${sectionKey}`}
+        role="region"
+        aria-labelledby={`settings-head-${sectionKey}`}
+        className="settings-accordion-panel"
+        data-open={isOpen}
+      >
+        <div className="settings-accordion-panel-inner">{children}</div>
+      </div>
+    </article>
+  )
+}
 
 export function SettingsPage() {
   const queryClient = useQueryClient()
@@ -33,8 +80,7 @@ export function SettingsPage() {
   const [cancellationPolicy, setCancellationPolicy] = useState('')
   const [localError, setLocalError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() => resolveInitialThemePreference())
-  const [themeSaved, setThemeSaved] = useState(false)
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set())
   const [features, setFeatures] = useState<ProfessionalFeatureFlags | null>(null)
   const [featuresSaved, setFeaturesSaved] = useState(false)
   const [featuresError, setFeaturesError] = useState<string | null>(null)
@@ -142,6 +188,15 @@ export function SettingsPage() {
     },
   })
 
+  const toggleSection = useCallback((key: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setLocalError(null)
@@ -189,14 +244,6 @@ export function SettingsPage() {
     )
   }
 
-  function handleThemeChange(nextTheme: ThemePreference) {
-    setThemePreference(nextTheme)
-    applyThemePreference(nextTheme)
-    saveThemePreference(nextTheme)
-    setThemeSaved(true)
-    setTimeout(() => setThemeSaved(false), 2500)
-  }
-
   function handleFeatureToggle(key: keyof ProfessionalFeatureFlags, value: boolean) {
     if (!features) {
       return
@@ -238,33 +285,19 @@ export function SettingsPage() {
   const googleStatus = googleStatusQuery.data
 
   return (
-    <section className="reports-grid">
-      <article className="card">
-        <h3>Aparência</h3>
-        <p className="muted-text">Escolha entre tema claro e escuro para o painel.</p>
+    <section className="reports-grid settings-page-root">
+      <p className="settings-page-lead muted-text">
+        Toque no título de cada bloco para expandir ou recolher o conteúdo. O tema claro/escuro fica no menu à
+        esquerda.
+      </p>
 
-        <div className="form-grid">
-          <label className="field-label" htmlFor="theme-preference">
-            Tema
-          </label>
-          <select
-            id="theme-preference"
-            className="field-input"
-            value={themePreference}
-            onChange={(event) => handleThemeChange(event.target.value as ThemePreference)}
-          >
-            <option value="light">Claro</option>
-            <option value="dark">Escuro</option>
-          </select>
-
-          {themeSaved && <p className="success-text">Tema atualizado com sucesso.</p>}
-        </div>
-      </article>
-
-      <article className="card">
-        <h3>Mensagens padrão do chatbot</h3>
-        <p className="muted-text">Esses textos são usados como base nas interações automáticas com pacientes.</p>
-
+      <SettingsAccordionSection
+        sectionKey="messages"
+        title="Mensagens padrão do chatbot"
+        description="Textos usados nas interações automáticas com pacientes."
+        expanded={expandedSections}
+        onToggle={toggleSection}
+      >
         <form className="form-grid" onSubmit={handleSubmit}>
           <label className="field-label" htmlFor="welcome-message">
             Mensagem de boas-vindas
@@ -312,12 +345,15 @@ export function SettingsPage() {
             {saveMutation.isPending ? 'Salvando...' : 'Salvar configurações'}
           </button>
         </form>
-      </article>
+      </SettingsAccordionSection>
 
-      <article className="card">
-        <h3>Funcionalidades por profissional (MVP)</h3>
-        <p className="muted-text">Ative ou desative os módulos principais para esta conta profissional.</p>
-
+      <SettingsAccordionSection
+        sectionKey="features"
+        title="Funcionalidades por profissional (MVP)"
+        description="Ative ou desative os módulos principais para esta conta."
+        expanded={expandedSections}
+        onToggle={toggleSection}
+      >
         {renderedFeatures ? (
           <div className="form-grid">
             <label className="status-chip">
@@ -438,14 +474,15 @@ export function SettingsPage() {
             {featuresSaved && <p className="success-text">Funcionalidades atualizadas com sucesso.</p>}
           </div>
         ) : null}
-      </article>
+      </SettingsAccordionSection>
 
-      <article className="card">
-        <h3>Personalização do Dashboard e Relatórios</h3>
-        <p className="muted-text">
-          Ajuste os valores padrão e escolha quais widgets e relatórios exibir. Cada profissional pode configurar ao seu gosto.
-        </p>
-
+      <SettingsAccordionSection
+        sectionKey="customize"
+        title="Personalização do Dashboard e Relatórios"
+        description="Padrões de período, widgets de análise e tipos de gráfico nos modais."
+        expanded={expandedSections}
+        onToggle={toggleSection}
+      >
         {(dashboardConfigQuery.isLoading || reportConfigQuery.isLoading) ? (
           <LoadingState message="Carregando personalização..." />
         ) : dashboardConfig && reportConfig ? (
@@ -540,126 +577,10 @@ export function SettingsPage() {
             </div>
 
             <div style={{ gridColumn: '1 / -1' }}>
-              <p className="field-label">Tipos de gráfico nos modais</p>
+              <p className="field-label">Tipos de gráfico nos modais de detalhe</p>
               <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-                Escolha quais tipos de visualização exibir ao clicar nas métricas (Tabela, Barras, Colunas, Linha, Área, Pizza, Donut, Radar).
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
-                {[
-                  { id: 'table', label: 'Tabela' },
-                  { id: 'bar', label: 'Barras' },
-                  { id: 'column', label: 'Colunas' },
-                  { id: 'line', label: 'Linha' },
-                  { id: 'area', label: 'Área' },
-                  { id: 'pie', label: 'Pizza' },
-                  { id: 'donut', label: 'Donut' },
-                  { id: 'radar', label: 'Radar' },
-                ].map((c) => {
-                  const enabled = new Set(dashboardConfig.enabledChartTypes ?? [])
-                  const checked = enabled.has(c.id)
-                  return (
-                    <label key={c.id} className="status-chip">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          const next = new Set(enabled)
-                          if (checked) next.delete(c.id)
-                          else next.add(c.id)
-                          updateDashboardConfigMutation.mutate({
-                            enabledChartTypes: Array.from(next),
-                          })
-                        }}
-                      />
-                      {c.label}
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div style={{ gridColumn: '1 / -1' }}>
-              <p className="field-label">Tipos de gráfico disponíveis nos modais</p>
-              <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-                Escolha quais tipos de visualização exibir ao abrir detalhes das métricas (tabela, barras, linhas, pizza, etc.).
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
-                {[
-                  { id: 'table', label: 'Tabela' },
-                  { id: 'bar', label: 'Barras (horizontal)' },
-                  { id: 'column', label: 'Colunas' },
-                  { id: 'line', label: 'Linha' },
-                  { id: 'area', label: 'Área' },
-                  { id: 'pie', label: 'Pizza' },
-                  { id: 'donut', label: 'Donut' },
-                  { id: 'radar', label: 'Radar' },
-                ].map((c) => {
-                  const enabled = new Set(dashboardConfig.enabledChartTypes ?? [])
-                  const checked = enabled.has(c.id)
-                  return (
-                    <label key={c.id} className="status-chip">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          const next = new Set(enabled)
-                          if (checked) next.delete(c.id)
-                          else next.add(c.id)
-                          updateDashboardConfigMutation.mutate({
-                            enabledChartTypes: Array.from(next),
-                          })
-                        }}
-                      />
-                      {c.label}
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div style={{ gridColumn: '1 / -1' }}>
-              <p className="field-label">Tipos de gráfico disponíveis nos modais</p>
-              <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-                Escolha quais visualizações aparecerão no botão de alternar (Tabela, Barras, Colunas, etc.) dentro dos modais de detalhe.
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
-                {[
-                  { id: 'table', label: 'Tabela' },
-                  { id: 'bar', label: 'Barras' },
-                  { id: 'column', label: 'Colunas' },
-                  { id: 'line', label: 'Linha' },
-                  { id: 'area', label: 'Área' },
-                  { id: 'pie', label: 'Pizza' },
-                  { id: 'donut', label: 'Donut' },
-                  { id: 'radar', label: 'Radar' },
-                ].map((c) => {
-                  const enabled = new Set(dashboardConfig.enabledChartTypes ?? [])
-                  const checked = enabled.has(c.id)
-                  return (
-                    <label key={c.id} className="status-chip">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          const next = new Set(enabled)
-                          if (checked) next.delete(c.id)
-                          else next.add(c.id)
-                          updateDashboardConfigMutation.mutate({
-                            enabledChartTypes: Array.from(next),
-                          })
-                        }}
-                      />
-                      {c.label}
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div style={{ gridColumn: '1 / -1' }}>
-              <p className="field-label">Tipos de gráfico nos modais</p>
-              <p className="muted-text" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-                Escolha quais visualizações exibir ao clicar nos cards de análise: Tabela, Barras, Colunas, Linha, Área, Pizza, Donut, Radar.
+                Visualizações disponíveis ao clicar nas métricas do dashboard (tabela, barras, colunas, linha, área,
+                pizza, donut, radar).
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem' }}>
                 {[
@@ -698,14 +619,15 @@ export function SettingsPage() {
             {configSaved && <p className="success-text">Configurações salvas com sucesso.</p>}
           </div>
         ) : null}
-      </article>
+      </SettingsAccordionSection>
 
-      <article className="card">
-        <h3>Integração com Google Calendar</h3>
-        <p className="muted-text">
-          Conecte sua conta Google para sincronizar consultas e gerar Google Meet automaticamente.
-        </p>
-
+      <SettingsAccordionSection
+        sectionKey="google"
+        title="Integração com Google Calendar"
+        description="Sincronizar consultas e Google Meet com sua conta Google."
+        expanded={expandedSections}
+        onToggle={toggleSection}
+      >
         {googleStatusQuery.isLoading ? (
           <LoadingState message="Carregando status da integração..." />
         ) : googleStatusQuery.isError ? (
@@ -753,15 +675,15 @@ export function SettingsPage() {
             )}
           </div>
         )}
-      </article>
+      </SettingsAccordionSection>
 
-      <article className="card">
-        <h3>Simulação de cenários</h3>
-        <p className="muted-text">
-          Limpa todos os dados de pacientes (consultas, mensagens, sessões WhatsApp) para simular
-          cenários como: paciente novo entrando em contato pela primeira vez ou paciente com
-          histórico de consultas.
-        </p>
+      <SettingsAccordionSection
+        sectionKey="simulation"
+        title="Simulação de cenários"
+        description="Limpar dados de pacientes para testar fluxos como paciente novo ou com histórico."
+        expanded={expandedSections}
+        onToggle={toggleSection}
+      >
         <div className="form-grid">
           <button
             type="button"
@@ -794,7 +716,7 @@ export function SettingsPage() {
             </p>
           )}
         </div>
-      </article>
+      </SettingsAccordionSection>
     </section>
   )
 }
